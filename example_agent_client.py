@@ -1,6 +1,6 @@
 """
-Example client for the Flight Price Aggregator Agent System
-Demonstrates how to interact with the ReAct agent-based API
+Example client for the Flight Price Aggregator CrewAI System
+Demonstrates how to interact with the CrewAI-powered API
 """
 
 import requests
@@ -10,17 +10,17 @@ from typing import Dict, List
 
 
 class FlightAgentClient:
-    """Client for the Flight Price Aggregator Agent System"""
+    """Client for the Flight Price Aggregator CrewAI System"""
 
     def __init__(self, base_url: str = "http://localhost:8080"):
         self.base_url = base_url
-        self.api_v2 = f"{base_url}/api/v2"
+        self.api_v1 = f"{base_url}/api/v1"
 
     def search_flights(self, origin: str, destination: str,
                       departure_date: str, passengers: int = 1,
                       cabin_class: str = "economy") -> Dict:
         """
-        Search flights using ReAct agents
+        Search flights using CrewAI agents
 
         Args:
             origin: Departure airport IATA code
@@ -32,7 +32,7 @@ class FlightAgentClient:
         Returns:
             Aggregated flight results from all agents
         """
-        url = f"{self.api_v2}/agents/search"
+        url = f"{self.api_v1}/flights/search"
 
         payload = {
             "origin": origin,
@@ -56,7 +56,7 @@ class FlightAgentClient:
 
     def get_agent_status(self) -> Dict:
         """Get status of all agents"""
-        url = f"{self.api_v2}/agents/status"
+        url = f"{self.api_v1}/agents/status"
         response = requests.get(url)
         response.raise_for_status()
         return response.json()
@@ -64,7 +64,7 @@ class FlightAgentClient:
     def display_results(self, results: Dict):
         """Display search results in a nice format"""
         print("=" * 80)
-        print("✈️  FLIGHT SEARCH RESULTS (ReAct Agent System)")
+        print("✈️  FLIGHT SEARCH RESULTS (CrewAI Multi-Agent System)")
         print("=" * 80)
         print()
 
@@ -168,14 +168,14 @@ class FlightAgentClient:
 def main():
     """Example usage"""
     print("\n")
-    print("🚀 Flight Price Aggregator - Agent System Example")
+    print("🚀 Flight Price Aggregator - CrewAI System Example")
     print("=" * 80)
     print()
 
     client = FlightAgentClient()
 
     # 1. Check agent status
-    print("1️⃣  Checking agent system status...")
+    print("1️⃣  Checking CrewAI agent system status...")
     print("-" * 80)
     try:
         status = client.get_agent_status()
@@ -188,7 +188,7 @@ def main():
     input("Press Enter to continue with flight search...")
 
     # 2. Search flights
-    print("\n2️⃣  Searching flights with ReAct agents...")
+    print("\n2️⃣  Searching flights with CrewAI agents...")
     print("-" * 80)
 
     try:

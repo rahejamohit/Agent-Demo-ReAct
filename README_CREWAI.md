@@ -2,7 +2,7 @@
 
 A **production-ready multi-agent system** using **CrewAI** to intelligently fetch and aggregate flight prices from multiple providers via Claude AI.
 
-## 🤖 Architecture: CrewAI Multi-Agent Orchestration
+## 🎯 Architecture: CrewAI Multi-Agent Orchestration
 
 ```
 FastAPI Backend (localhost:8080)
@@ -12,32 +12,19 @@ FastAPI Backend (localhost:8080)
 │   ├── GET /api/v1/agents/status       (Crew status)
 │   └── GET /health                      (Health check)
 │
-└── CrewAI System (Framework)
+└── CrewAI System
     │
-    ├── Crew (Task Orchestrator)
-    │   ├── Skyscanner Agent → search_skyscanner task
-    │   ├── Kayak Agent → search_kayak task
-    │   ├── Google Flights Agent → search_google_flights task
-    │   └── Amadeus Agent → search_amadeus task
+    ├── Crew (Orchestrator)
+    │   ├── Skyscanner Agent → search_skyscanner tool
+    │   ├── Kayak Agent → search_kayak tool
+    │   ├── Google Flights Agent → search_google_flights tool
+    │   └── Amadeus Agent → search_amadeus tool
     │
-    └── Tool Definitions (@tool decorator)
-        ├── search_skyscanner
-        ├── search_kayak
-        ├── search_google_flights
-        └── search_amadeus
-
-Project Files
-├── main_agents.py              # FastAPI app with agent endpoints
-├── crew_config.py              # CrewAI agents, tools & configurations
-├── flight_crew.py              # Crew orchestration (FlightAggregatorCrew)
-├── models.py                   # Pydantic models & schemas
-├── example_agent_client.py     # Python client example
-├── requirements.txt            # Dependencies (includes crewai)
-├── README.md                   # This file
-├── README_CREWAI.md            # CrewAI-specific documentation
-├── CREWAI_MIGRATION.md         # Migration guide from ReAct → CrewAI
-├── AGENT_SYSTEM.md             # ReAct documentation (reference)
-└── AGENT_QUICKSTART.md         # Setup guide
+    └── Task Manager
+        ├── Skyscanner Flight Search Task
+        ├── Kayak Flight Search Task
+        ├── Google Flights Search Task
+        └── Amadeus Flight Search Task
 ```
 
 ## 🚀 Quick Start (5 Minutes)
@@ -104,11 +91,11 @@ curl -X POST "http://localhost:8080/api/v1/agents/search" \
 - `GET /` - API info and documentation links
 
 ### Legacy Endpoints (v1) - Deprecated
-- `POST /api/v1/flights/search` - ⚠️ Redirects to agent-based search
+- `POST /api/v1/flights/search` - ⚠️ Redirects to CrewAI search
 
 ## 📖 Usage Examples
 
-### Search Flights with Agents
+### Search Flights with Crew
 ```bash
 curl -X POST "http://localhost:8080/api/v1/agents/search" \
   -H "Content-Type: application/json" \
@@ -169,7 +156,7 @@ curl -X POST "http://localhost:8080/api/v1/agents/search" \
 }
 ```
 
-### Check Agent Status
+### Check Crew Status
 ```bash
 curl http://localhost:8080/api/v1/agents/status
 ```
@@ -194,12 +181,12 @@ for flight in results["flights"][:3]:
 
 ## ✨ Key Features
 
-✅ **CrewAI Framework** - Higher-level agent orchestration with tasks  
+✅ **CrewAI Framework** - Higher-level agent orchestration  
 ✅ **Multi-Agent System** - 4 specialized agents (Skyscanner, Kayak, Google Flights, Amadeus)  
 ✅ **Claude API Integration** - Uses Claude 3.5 Sonnet with tool use  
-✅ **Task-Based Workflow** - Explicit task definitions for agent collaboration  
-✅ **Built-in Memory** - Automatic memory management per agent  
-✅ **Multi-Provider Aggregation** - Fetches from all providers with orchestration  
+✅ **Task-Based Workflow** - Tasks define what agents need to accomplish  
+✅ **Built-in Memory** - CrewAI provides memory management per agent  
+✅ **Multi-Provider Aggregation** - Fetches from all providers simultaneously  
 ✅ **Price Sorting** - Results automatically sorted by price (cheapest first)  
 ✅ **Direct Booking Links** - Each flight includes provider booking URL  
 ✅ **Provider Information** - Each result tagged with its source  
@@ -208,33 +195,21 @@ for flight in results["flights"][:3]:
 ✅ **Structured Logging** - Monitoring-ready logs for debugging  
 ✅ **Error Handling** - Comprehensive error responses  
 ✅ **Production Ready** - Clean code, type hints, documentation  
-✅ **Multi-LLM Support** - Works with Claude, Gemini, GPT-4, and more  
 
 ## 🤖 How CrewAI Works
 
-### Agent-Task Architecture
-Each agent is specialized with role, goal, and tools. The crew orchestrates task execution:
+### Agent Architecture
+Each agent is specialized with:
+- **Role**: What the agent does
+- **Goal**: What it's trying to achieve
+- **Backstory**: Context about its expertise
+- **Tools**: Available actions (flight search APIs)
 
-1. **AGENT DEFINITION** 🎯
-   - Each agent has a role (e.g., "Skyscanner Flight Search Specialist")
-   - Goal: What it should accomplish
-   - Backstory: Context about its expertise
-   - Tools: Flight search functions it can use
-
-2. **TASK ASSIGNMENT** 📋
-   - Crew defines tasks for each agent
-   - Example task: "Search for flights from JFK to LAX on 2026-06-15"
-   - Agent receives clear instructions about what to find
-
-3. **TOOL EXECUTION** 🛠️
-   - Agent uses its tools to complete the task
-   - Example: Calls `search_skyscanner()` tool
-   - Gets results from provider APIs
-
-4. **RESULT AGGREGATION** 📊
-   - Crew collects results from all agents
-   - Combines and sorts all flights
-   - Returns structured response to user
+### Task-Based Workflow
+1. **Task Definition** - Define what needs to be done
+2. **Agent Assignment** - Assign agent(s) to the task
+3. **Crew Execution** - CrewAI orchestrates agent collaboration
+4. **Result Aggregation** - Combine results from all agents
 
 ### Specialized Agents
 
@@ -253,33 +228,34 @@ Each agent is specialized with role, goal, and tools. The crew orchestrates task
    POST /api/v1/agents/search
    {origin: "JFK", destination: "LAX", ...}
    
-2. FlightAggregatorCrew initializes
-   - Creates 4 specialized agents
-   - Defines 4 tasks (one per provider)
+2. Crew initializes agents
+   - Skyscanner Agent
+   - Kayak Agent
+   - Google Flights Agent
+   - Amadeus Agent
    
-3. Crew executes all tasks
-   - Skyscanner Agent executes search_skyscanner task
-   - Kayak Agent executes search_kayak task
-   - Google Flights Agent executes search_google_flights task
-   - Amadeus Agent executes search_amadeus task
+3. Crew creates and executes tasks
+   - Each agent gets a task
+   - Tools execute in parallel (future)
+   - Results collected
    
-4. Crew collects and aggregates results
-   - Gathers flights from all tasks
+4. Crew aggregates results
+   - Combines all flights
    - Removes duplicates
-   - Sorts by price (cheapest first)
-   - Adds provider information
+   - Sorts by price
+   - Adds provider info
    
 5. Returns aggregated response to user
-   [~48 flights from all providers, sorted by price]
+   [48 flights from all providers, sorted by price]
 ```
 
 ## 🔌 Integration with Frontend
 
-This backend is designed for the **Flight Price Agentic System**:
+This backend is designed for the **Flight Price Aggregator UI**:
 
 1. **Frontend** sends search request to `/api/v1/agents/search`
-2. **Agents** fetch flights from multiple providers (parallel execution)
-3. **Orchestrator** aggregates and sorts results
+2. **Crew** orchestrates agents to fetch flights from multiple providers
+3. **Aggregator** collects and sorts results
 4. **Frontend** displays results with direct booking links
 
 ## ⚙️ Configuration
@@ -304,41 +280,29 @@ AMADEUS_API_KEY=xxx
 CORS_ORIGINS=["http://localhost:3000","https://yourdomain.com"]
 ```
 
-### CORS Configuration
-Currently set to allow all origins (`allow_origins=["*"]`). For production:
-
-```python
-allow_origins=[
-    "http://localhost:3000",
-    "https://yourdomain.com"
-]
-```
-
 ### Agent Configuration
 Agents are configured in `crew_config.py`:
 - Model: `claude-3-5-sonnet-20241022`
 - Max iterations per agent: 5
-- Memory: Enabled per agent
+- Request timeout: 10 seconds
 - Tool use: Enabled
-- Verbose logging: Enabled for debugging
+- Memory: Enabled per agent
 
 ## 🚀 Next Steps & Enhancements
 
 ### Phase 1: Immediate (Production Ready)
 - [x] CrewAI framework implemented
 - [x] Multi-agent system (4 specialized agents)
-- [x] Task-based workflow setup
 - [x] Tool use capability enabled
 - [x] Mock data generators (realistic)
 - [ ] Real API integrations (Skyscanner, Amadeus, Google Flights, Kayak)
 - [ ] API key management for real providers
 
 ### Phase 2: Optimization (Coming Soon)
-- [ ] **Parallel Task Execution** - Use CrewAI's concurrent task capabilities
-- [ ] **Advanced Prompts** - Fine-tune agent backstories and goals
+- [ ] **Parallel Task Execution** - CrewAI can execute tasks concurrently
+- [ ] **Advanced Prompts** - Fine-tune agent reasoning capabilities
 - [ ] **Caching** - Add Redis for result caching
 - [ ] **Result Deduplication** - Remove duplicate flights across providers
-- [ ] **LLM Switching** - Test with Gemini, GPT-4, and other models
 
 ### Phase 3: Production Scaling
 - [ ] **Database** - Add PostgreSQL for persistent storage
@@ -360,15 +324,16 @@ Agents are configured in `crew_config.py`:
 
 ### Code Structure
 - **`models.py`** - Type definitions and validation (Pydantic)
-- **`crew_config.py`** - CrewAI agents, tools & configurations
-- **`flight_crew.py`** - Crew orchestrator and FlightAggregatorCrew class
+- **`crew_config.py`** - Agent configurations and tool definitions
+- **`flight_crew.py`** - CrewAI crew orchestrator (multi-agent manager)
 - **`main_agents.py`** - FastAPI endpoints and server
 - **`example_agent_client.py`** - Example client demonstrating usage
 
 ### Key Classes
-- `FlightAggregatorCrew` - Main crew orchestration class
-- `Agent` - CrewAI agents with role, goal, and tools
-- Tool functions decorated with `@tool` decorator
+- `FlightAggregatorCrew` - Manages the CrewAI crew
+- `create_agents()` - Factory for creating specialized agents
+- `create_tasks()` - Factory for creating flight search tasks
+- Tool decorators for flight search APIs
 
 ### Testing
 ```bash
@@ -402,25 +367,13 @@ mypy .
 - **Cost**: ~0.1-0.5¢ per search (depends on Claude API usage)
 
 ### Future Optimizations
-- **Parallel Task Execution** - CrewAI can execute tasks concurrently → 3-5 seconds
+- **Parallel Tasks** - Execute all 4 tasks concurrently → 3-5 seconds
 - **Caching** - Cache results for identical searches
 - **Result Limiting** - Return top N results instead of all
-- **LLM Optimization** - Use faster models (Haiku) for initial filtering
 
 ## 🧠 Understanding CrewAI
 
 **CrewAI** = Framework for orchestrating AI agents with roles, goals, and tools
-
-### Core Concepts
-```
-Agents (Specialists)
-    ↓
-Tasks (Assignments)
-    ↓
-Crew (Orchestrator)
-    ↓
-Results (Aggregated)
-```
 
 ### Why CrewAI?
 - **Abstraction** - Hide complexity of agent orchestration
@@ -437,15 +390,11 @@ Results (Aggregated)
 4. **Tools** enable agents to search flights
 5. **Results** are aggregated and returned
 
-See [README_CREWAI.md](README_CREWAI.md) for detailed CrewAI documentation or [CREWAI_MIGRATION.md](CREWAI_MIGRATION.md) for migration details.
-
 ## 📚 Documentation
 
-- **[README.md](README.md)** - This file (current version with CrewAI)
-- **[README_CREWAI.md](README_CREWAI.md)** ⭐ - CrewAI-specific documentation
-- **[CREWAI_MIGRATION.md](CREWAI_MIGRATION.md)** - Migration guide from ReAct → CrewAI
-- **[AGENT_QUICKSTART.md](AGENT_QUICKSTART.md)** - 5-minute setup guide
-- **[AGENT_SYSTEM.md](AGENT_SYSTEM.md)** - ReAct architecture (reference only)
+- **[README.md](README.md)** - This file (CrewAI version)
+- **[AGENT_QUICKSTART.md](AGENT_QUICKSTART.md)** ⭐ - 5-minute setup guide
+- **[AGENT_SYSTEM.md](AGENT_SYSTEM.md)** - Architecture & implementation (ReAct version - for reference)
 
 ## 🔗 Resources
 

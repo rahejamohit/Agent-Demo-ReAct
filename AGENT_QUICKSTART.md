@@ -1,6 +1,6 @@
-# 🤖 Agent System Quick Start
+# 🤖 Flight Search Quick Start
 
-Get the ReAct-based flight search system running in 5 minutes.
+Get the CrewAI-based flight search system running in 5 minutes.
 
 ## Step 1: Set API Key
 
@@ -29,17 +29,17 @@ python main_agents.py
 
 You should see:
 ```
-🚀 Starting Flight Price Aggregator - Agent System
+🚀 Starting Flight Price Aggregator - CrewAI System
 📍 URL: http://localhost:8080
 📚 Docs: http://localhost:8080/docs
-🤖 Pattern: ReAct (Reasoning + Acting)
+🎯 Framework: CrewAI
 ```
 
 ## Step 4: Test Agents
 
 ### Option A: Using Interactive Docs
 1. Open http://localhost:8080/docs
-2. Click "Try it out" on `/api/v2/agents/search`
+2. Click "Try it out" on `/api/v1/flights/search`
 3. Fill in:
    ```json
    {
@@ -66,7 +66,7 @@ This runs a complete example showing:
 
 ### Option C: Using curl
 ```bash
-curl -X POST "http://localhost:8080/api/v2/agents/search" \
+curl -X POST "http://localhost:8080/api/v1/flights/search" \
   -H "Content-Type: application/json" \
   -d '{
     "origin": "JFK",

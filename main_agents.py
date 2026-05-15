@@ -1,8 +1,8 @@
 """
-FastAPI backend with ReAct Agent system for flight price fetching
+FastAPI backend with CrewAI for intelligent multi-agent flight price aggregation
 Runs on localhost:8080
 
-This version uses Claude API agents with ReAct pattern for intelligent flight searching
+This version uses CrewAI to coordinate specialized agents for each flight provider
 Each agent specializes in a flight provider (Skyscanner, Kayak, Google Flights, Amadeus)
 """
 
@@ -15,7 +15,7 @@ import logging
 import os
 
 from models import FlightSearch, HealthCheck
-from flight_agents import agent_orchestrator
+from flight_crew import get_crew
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -25,18 +25,19 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan events"""
-    logger.info("🚀 Flight Price API with Agent System starting up...")
-    logger.info("📡 Agents: Skyscanner, Kayak, Google Flights, Amadeus")
-    logger.info("🧠 Pattern: ReAct (Reasoning + Acting)")
+    logger.info("🚀 Flight Price API with CrewAI System starting up...")
+    logger.info("📡 Framework: CrewAI")
+    logger.info("🤖 Agents: Skyscanner, Kayak, Google Flights, Amadeus")
+    logger.info("🧠 Pattern: Multi-Agent Task-Based Orchestration")
     yield
     logger.info("🛑 Flight Price API shutting down...")
 
 
 # Initialize FastAPI app
 app = FastAPI(
-    title="Flight Price Aggregator API - Agent System",
-    description="Multi-agent system using ReAct pattern to fetch and aggregate flight prices",
-    version="2.0.0",
+    title="Flight Price Aggregator API - CrewAI System",
+    description="Multi-agent system using CrewAI framework to fetch and aggregate flight prices",
+    version="1.0.0",
     lifespan=lifespan
 )
 
@@ -60,7 +61,7 @@ async def health_check():
     return HealthCheck(
         status="healthy",
         timestamp=datetime.now(),
-        version="2.0.0"
+        version="1.0.0"
     )
 
 
@@ -68,14 +69,15 @@ async def health_check():
 async def root():
     """API info endpoint"""
     return {
-        "name": "Flight Price Aggregator API - Agent System",
-        "version": "2.0.0",
-        "architecture": "ReAct (Reasoning + Acting)",
+        "name": "Flight Price Aggregator API - CrewAI System",
+        "version": "1.0.0",
+        "framework": "CrewAI",
+        "architecture": "Multi-Agent Task-Based Orchestration",
         "agents": ["Skyscanner", "Kayak", "Google Flights", "Amadeus"],
         "endpoints": {
             "health": "/health",
-            "search_with_agents": "/api/v2/agents/search",
-            "agent_status": "/api/v2/agents/status",
+            "search_flights": "/api/v1/flights/search",
+            "agent_status": "/api/v1/agents/status",
             "docs": "/docs"
         },
         "docs": "Visit /docs for interactive API documentation"
@@ -83,23 +85,22 @@ async def root():
 
 
 # ============================================================================
-# Agent-based Search Endpoints (v2)
+# Flight Search Endpoints (v1)
 # ============================================================================
 
 @app.post(
-    "/api/v2/agents/search",
-    tags=["Agents", "Flights"],
-    summary="Search flights using ReAct agents"
+    "/api/v1/flights/search",
+    tags=["Flights"],
+    summary="Search flights using CrewAI agents"
 )
-async def search_with_agents(search: FlightSearch):
+async def search_flights(search: FlightSearch):
     """
-    Search flights using multi-agent ReAct system.
+    Search flights using CrewAI multi-agent system.
 
-    Each flight provider has a dedicated agent that:
-    1. REASONS about the search parameters
-    2. ACTS by calling the provider API
-    3. OBSERVES the results
-    4. REPEATS if refinement is needed
+    CrewAI coordinates multiple specialized agents that:
+    1. Each agent focuses on a specific flight provider
+    2. Agents work on parallel tasks for speed
+    3. Results are aggregated and sorted by price
 
     **Parameters:**
     - **origin**: Departure airport IATA code (e.g., JFK)
@@ -123,79 +124,58 @@ async def search_with_agents(search: FlightSearch):
             logger.error("❌ ANTHROPIC_API_KEY not configured")
             raise HTTPException(
                 status_code=500,
-                detail="Agent system not configured: ANTHROPIC_API_KEY required"
+                detail="Crew system not configured: ANTHROPIC_API_KEY required"
             )
 
-        logger.info(f"🤖 Agent Search: {search.origin} → {search.destination} on {search.departure_date}")
+        logger.info(f"🤖 CrewAI Search: {search.origin} → {search.destination} on {search.departure_date}")
 
-        # Orchestrator searches all providers with agents
-        result = agent_orchestrator.search_all_providers(
+        # Get the crew and execute search
+        crew = get_crew()
+        result = crew.search_flights(
             origin=search.origin,
             destination=search.destination,
             departure_date=search.departure_date,
-            passengers=search.passengers
+            passengers=search.passengers,
+            cabin_class=search.cabin_class
         )
 
-        logger.info(f"✅ Agents found {result['total_results']} total flights")
+        logger.info(f"✅ Crew found {result['total_results']} total flights")
         return result
 
     except ValueError as e:
         logger.error(f"❌ Invalid parameters: {str(e)}")
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.error(f"❌ Agent search failed: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Agent search failed: {str(e)}")
+        logger.error(f"❌ Crew search failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Crew search failed: {str(e)}")
 
 
 @app.get(
-    "/api/v2/agents/status",
+    "/api/v1/agents/status",
     tags=["Agents"],
     summary="Get agent system status"
 )
 async def agent_status():
     """
-    Get status of all flight search agents
+    Get status of all flight search agents in the CrewAI system
 
     Returns:
     - Agent names and providers
     - Configuration status
     - Model information
+    - Agent specialties
     """
-    agents_info = []
-
-    for provider_name, agent in agent_orchestrator.agents.items():
-        agents_info.append({
-            "agent": agent.config["name"],
-            "provider": provider_name,
-            "model": agent.model,
-            "status": "ready",
-            "max_iterations": agent.max_iterations,
-            "description": agent.config["description"]
-        })
+    crew = get_crew()
+    crew_info = crew.get_agent_info()
 
     return {
-        "system": "ReAct Agent System",
-        "agents": agents_info,
-        "timestamp": datetime.now().isoformat(),
+        "system": crew_info["system"],
+        "framework": crew_info["framework"],
+        "agents": crew_info["agents"],
+        "total_agents": crew_info["total_agents"],
+        "timestamp": crew_info["timestamp"],
         "api_key_configured": bool(os.getenv("ANTHROPIC_API_KEY"))
     }
-
-
-# ============================================================================
-# Legacy API Endpoints (v1) - kept for compatibility
-# ============================================================================
-
-@app.post(
-    "/api/v1/flights/search",
-    tags=["Flights", "Deprecated"],
-    summary="[DEPRECATED] Use /api/v2/agents/search instead"
-)
-async def search_flights_legacy(search: FlightSearch):
-    """
-    Legacy endpoint - redirects to agent-based search.
-    Use /api/v2/agents/search for new implementations.
-    """
-    return await search_with_agents(search)
 
 
 # ============================================================================
@@ -231,10 +211,10 @@ if __name__ == "__main__":
     import uvicorn
 
     print("""
-    🚀 Starting Flight Price Aggregator - Agent System
+    🚀 Starting Flight Price Aggregator - CrewAI System
     📍 URL: http://localhost:8080
     📚 Docs: http://localhost:8080/docs
-    🤖 Pattern: ReAct (Reasoning + Acting)
+    🎯 Framework: CrewAI
     🧠 Agents: Skyscanner, Kayak, Google Flights, Amadeus
 
     ⚠️  Important: Set ANTHROPIC_API_KEY environment variable
