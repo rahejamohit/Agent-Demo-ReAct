@@ -5,7 +5,7 @@ Defines agents, tools, and tasks for multi-provider flight search
 
 from crewai import Agent, Task
 from langchain_core.tools import tool
-from langchain_anthropic import ChatAnthropic
+from langchain_google_genai import ChatGoogleGenerativeAI
 import os
 import random
 from datetime import datetime, timedelta
@@ -69,7 +69,7 @@ def search_google_flights(origin: str, destination: str, departure_date: str, pa
 @tool("search_amadeus")
 def search_amadeus(origin: str, destination: str, departure_date: str, passengers: int = 1) -> Dict[str, Any]:
     """
-    Search flights on Amadeus for premium options and seat availability.
+    Search flights on Amadeus for premium options and ancillaries.
 
     Args:
         origin: Departure airport IATA code (e.g., JFK)
@@ -83,100 +83,72 @@ def search_amadeus(origin: str, destination: str, departure_date: str, passenger
     return _search_flights("amadeus", origin, destination, departure_date, passengers)
 
 
-# ============================================================================
-# HELPER FUNCTIONS FOR FLIGHT SEARCH
-# ============================================================================
-
 def _search_flights(provider: str, origin: str, destination: str,
-                   departure_date: str, passengers: int) -> Dict[str, Any]:
-    """Generate realistic mock flight data for providers"""
-
-    flights = _generate_mock_flights(provider, origin, destination, departure_date, passengers)
-
-    return {
-        "status": "success",
-        "provider": provider,
-        "flights": flights,
-        "total_results": len(flights),
-        "search_params": {
-            "origin": origin,
-            "destination": destination,
-            "departure_date": departure_date,
-            "passengers": passengers
-        }
-    }
-
-
-def _generate_mock_flights(provider: str, origin: str, destination: str,
-                          departure_date: str, passengers: int) -> List[Dict[str, Any]]:
-    """Generate realistic mock flight data"""
+                   departure_date: str, passengers: int = 1) -> Dict[str, Any]:
+    """Generate mock flight data"""
+    random.seed(hash(f"{provider}{origin}{destination}{departure_date}"))
 
     airlines = {
-        "skyscanner": ["Budget Air", "EconFly", "ValueJet", "SaveAirlines", "DealWings"],
-        "kayak": ["Delta", "United", "American", "Southwest", "JetBlue"],
-        "google_flights": ["United", "American", "Frontier", "Spirit", "Alaska"],
-        "amadeus": ["Lufthansa", "British Airways", "Air France", "KLM", "Emirates"]
+        "skyscanner": ["Ryanair", "EasyJet", "Wizz Air", "Southwest", "Spirit"],
+        "kayak": ["United", "Delta", "American", "Southwest", "JetBlue"],
+        "google_flights": ["Lufthansa", "KLM", "Air France", "Turkish", "Emirates"],
+        "amadeus": ["British Airways", "Lufthansa", "Singapore Airlines", "Qatar", "ANA"]
     }
 
-    airlines_list = airlines.get(provider, ["Airline"])
-    num_flights = random.randint(8, 16)
     flights = []
-
-    base_price = random.randint(150, 400)
-
-    for i in range(num_flights):
-        departure_hour = random.randint(6, 22)
-        departure_minute = random.choice([0, 15, 30, 45])
-        duration = random.randint(180, 600)  # minutes
-
-        departure_time = datetime.strptime(departure_date, "%Y-%m-%d").replace(
-            hour=departure_hour, minute=departure_minute
-        )
-        arrival_time = departure_time + timedelta(minutes=duration)
+    for i in range(random.randint(8, 15)):
+        base_price = random.uniform(150, 800)
+        duration = random.randint(180, 720)
 
         flight = {
             "provider": provider,
-            "airline": random.choice(airlines_list),
-            "flight_number": f"{random.choice(['DL', 'UA', 'AA', 'SW', 'NK', 'B6', 'AS', 'F9'])}{random.randint(100, 9999)}",
-            "departure": departure_time.isoformat(),
-            "arrival": arrival_time.isoformat(),
+            "airline": random.choice(airlines.get(provider, ["Unknown"])),
+            "flight_number": f"{provider.upper()[:2]}{i:03d}",
+            "departure": f"{departure_date}T{random.randint(6,22):02d}:{random.choice([0,15,30,45]):02d}:00",
+            "arrival": f"{departure_date}T{random.randint(8,23):02d}:{random.choice([0,15,30,45]):02d}:00",
             "duration_minutes": duration,
-            "stops": random.choices([0, 1, 2], weights=[60, 30, 10])[0],
-            "price": round(base_price + random.uniform(-50, 150), 2),
+            "stops": random.choice([0, 0, 0, 1, 1, 2]),
+            "price": round(base_price, 2),
             "currency": "USD",
-            "booking_url": f"https://{provider}.example.com/book/{random.randint(100000, 999999)}",
-            "seats_available": random.randint(1, 15)
+            "booking_url": f"https://{provider}.com/book?flight={i}",
+            "seats_available": random.randint(1, 50)
         }
         flights.append(flight)
 
-    # Sort by price
-    flights.sort(key=lambda x: x["price"])
-    return flights
+    flights.sort(key=lambda x: x['price'])
+    return {"flights": flights, "total_results": len(flights)}
 
 
 # ============================================================================
 # CREWAI AGENTS DEFINITION
 # ============================================================================
 
-def create_agents(model: str = "claude-3-5-sonnet-20241022", api_key: str = None) -> Dict[str, Agent]:
+AGENT_CONFIG = {
+    "model": "gemini-3-flash-preview",
+    "max_iterations": 5,
+    "memory": True,
+    "verbose": True
+}
+
+
+def create_agents(model: str = "gemini-3-flash-preview", api_key: str = None) -> Dict[str, Agent]:
     """
     Create specialized flight search agents for CrewAI.
 
     Args:
-        model: LLM model to use (e.g., "claude-3-5-sonnet-20241022")
-        api_key: API key (defaults to ANTHROPIC_API_KEY env var)
+        model: LLM model to use
+        api_key: API key (defaults to GOOGLE_API_KEY env var)
 
     Returns:
         Dictionary of agents keyed by provider name
     """
-
     if api_key is None:
-        api_key = os.getenv("ANTHROPIC_API_KEY")
+        api_key = os.getenv("GOOGLE_API_KEY")
 
-    # Initialize the Claude LLM
-    llm = ChatAnthropic(
+    # Initialize the Google Gemini LLM
+    llm = ChatGoogleGenerativeAI(
         model=model,
-        api_key=api_key,
+        google_api_key=api_key,
         temperature=0.7,
         max_tokens=2048
     )
@@ -242,11 +214,10 @@ You excel at identifying flights with excellent seat availability and service op
 # CREWAI TASKS DEFINITION
 # ============================================================================
 
-def create_tasks(agents: Dict[str, Agent],
-                origin: str, destination: str,
-                departure_date: str, passengers: int) -> List[Task]:
+def create_tasks(agents: Dict[str, Agent], origin: str, destination: str,
+                departure_date: str, passengers: int = 1) -> List[Task]:
     """
-    Create tasks for each agent to search flights.
+    Create tasks for each agent to execute.
 
     Args:
         agents: Dictionary of Agent objects
@@ -256,77 +227,30 @@ def create_tasks(agents: Dict[str, Agent],
         passengers: Number of passengers
 
     Returns:
-        List of Task objects for the crew
+        List of Task objects
     """
 
     tasks = [
         Task(
-            description=f"""Search for flights from {origin} to {destination} on {departure_date} for {passengers} passenger(s).
-Focus on finding the cheapest deals and budget airline options.
-Use the search_skyscanner tool to find flights.
-Report the top 3 cheapest options with detailed information.""",
+            description=f"Search for flights from {origin} to {destination} on {departure_date} for {passengers} passenger(s) on Skyscanner. Find budget-friendly options and report the cheapest flights.",
             agent=agents["skyscanner"],
-            expected_output="A detailed report of the 3 cheapest flights found on Skyscanner with prices and details."
+            expected_output="List of flights with prices, airlines, and booking links from Skyscanner"
         ),
-
         Task(
-            description=f"""Search for flights from {origin} to {destination} on {departure_date} for {passengers} passenger(s).
-Focus on finding flights with the best balance of price and customer ratings.
-Use the search_kayak tool to find flights.
-Report the top 3 best value options with ratings and details.""",
+            description=f"Search for flights from {origin} to {destination} on {departure_date} for {passengers} passenger(s) on Kayak. Focus on value and customer ratings.",
             agent=agents["kayak"],
-            expected_output="A detailed report of the 3 best value flights found on Kayak with prices, ratings, and details."
+            expected_output="List of flights with prices, airlines, and booking links from Kayak"
         ),
-
         Task(
-            description=f"""Search for flights from {origin} to {destination} on {departure_date} for {passengers} passenger(s).
-Focus on finding flexible options and analyzing price trends.
-Use the search_google_flights tool to find flights.
-Report the top 3 most flexible options with price trend analysis.""",
+            description=f"Search for flights from {origin} to {destination} on {departure_date} for {passengers} passenger(s) on Google Flights. Look for flexible options and price trends.",
             agent=agents["google_flights"],
-            expected_output="A detailed report of the 3 most flexible flights found on Google Flights with price trends and details."
+            expected_output="List of flights with prices, airlines, and booking links from Google Flights"
         ),
-
         Task(
-            description=f"""Search for flights from {origin} to {destination} on {departure_date} for {passengers} passenger(s).
-Focus on premium options with detailed seat availability and ancillaries.
-Use the search_amadeus tool to find flights.
-Report the top 3 premium options with seat and service details.""",
+            description=f"Search for flights from {origin} to {destination} on {departure_date} for {passengers} passenger(s) on Amadeus. Find premium options with seat details.",
             agent=agents["amadeus"],
-            expected_output="A detailed report of the 3 premium flights found on Amadeus with seat details and ancillaries."
+            expected_output="List of flights with prices, airlines, and booking links from Amadeus"
         )
     ]
 
     return tasks
-
-
-# ============================================================================
-# AGENT CONFIGURATION METADATA
-# ============================================================================
-
-AGENT_CONFIG = {
-    "skyscanner": {
-        "name": "Skyscanner Agent",
-        "provider": "skyscanner",
-        "description": "Searches Skyscanner for flight deals",
-        "specialty": "Budget flights and deals"
-    },
-    "kayak": {
-        "name": "Kayak Agent",
-        "provider": "kayak",
-        "description": "Searches Kayak for best value flights",
-        "specialty": "Value for money and ratings"
-    },
-    "google_flights": {
-        "name": "Google Flights Agent",
-        "provider": "google_flights",
-        "description": "Searches Google Flights for flexible options",
-        "specialty": "Flexibility and price trends"
-    },
-    "amadeus": {
-        "name": "Amadeus Agent",
-        "provider": "amadeus",
-        "description": "Searches Amadeus for premium flights",
-        "specialty": "Premium options and ancillaries"
-    }
-}

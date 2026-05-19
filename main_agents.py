@@ -116,15 +116,15 @@ async def search_flights(search: FlightSearch):
     - Each flight includes booking URL
     - Provider information for each flight
 
-    **Note**: Requires ANTHROPIC_API_KEY environment variable
+    **Note**: Requires GOOGLE_API_KEY environment variable
     """
     try:
         # Verify API key is configured
-        if not os.getenv("ANTHROPIC_API_KEY"):
-            logger.error("❌ ANTHROPIC_API_KEY not configured")
+        if not os.getenv("GOOGLE_API_KEY"):
+            logger.error("❌ GOOGLE_API_KEY not configured")
             raise HTTPException(
                 status_code=500,
-                detail="Crew system not configured: ANTHROPIC_API_KEY required"
+                detail="Crew system not configured: GOOGLE_API_KEY required"
             )
 
         logger.info(f"🤖 CrewAI Search: {search.origin} → {search.destination} on {search.departure_date}")
@@ -174,7 +174,7 @@ async def agent_status():
         "agents": crew_info["agents"],
         "total_agents": crew_info["total_agents"],
         "timestamp": crew_info["timestamp"],
-        "api_key_configured": bool(os.getenv("ANTHROPIC_API_KEY"))
+        "api_key_configured": bool(os.getenv("GOOGLE_API_KEY"))
     }
 
 
@@ -216,9 +216,10 @@ if __name__ == "__main__":
     📚 Docs: http://localhost:8080/docs
     🎯 Framework: CrewAI
     🧠 Agents: Skyscanner, Kayak, Google Flights, Amadeus
+    🌐 LLM: Google Gemini 3 Flash
 
-    ⚠️  Important: Set ANTHROPIC_API_KEY environment variable
-       export ANTHROPIC_API_KEY="your-api-key-here"
+    ⚠️  Important: Set GOOGLE_API_KEY environment variable
+       export GOOGLE_API_KEY="your-google-api-key-here"
     """)
 
     uvicorn.run(
