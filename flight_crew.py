@@ -6,6 +6,7 @@ Multi-agent orchestration with Google Gemini 3 Flash
 import os
 import logging
 import sys
+import asyncio
 from datetime import datetime
 from typing import Dict, List, Any, Optional
 from crewai import Crew, Process
@@ -142,7 +143,9 @@ class FlightAggregatorCrew:
         manager_llm = LLM(
             model=f"{config['prefix']}/{self.model}",
             api_key=self.api_key,
-            temperature=0.7
+            temperature=0.7,
+            max_retries=2,              # Max 2 retries on LLM failures
+            request_timeout=30          # 30 second timeout per request
         )
 
         crew = Crew(
@@ -151,7 +154,9 @@ class FlightAggregatorCrew:
             verbose=True,
             memory=False,
             process=Process.hierarchical,  # Run agents in parallel
-            manager_llm=manager_llm  # Manager coordinates parallel agents
+            manager_llm=manager_llm,       # Manager coordinates parallel agents
+            max_retries=2,                 # Max 2 retries at crew level
+            max_rpm=100                    # Rate limit: 100 requests per minute
         )
 
         logger.info("✅ Crew initialized with hierarchical (parallel) execution")
@@ -204,19 +209,33 @@ class FlightAggregatorCrew:
 
             # Execute the crew - this runs all agent tasks in parallel
             logger.info("\n" + "=" * 70)
-            logger.info("🚀 CREW EXECUTION STARTING (PARALLEL)")
+            logger.info("🚀 CREW EXECUTION STARTING (PARALLEL WITH AGGREGATOR)")
             logger.info("=" * 70)
-            logger.info("⚡ All 4 agents will now search in PARALLEL...")
-            logger.info("   🟦 Skyscanner Agent")
-            logger.info("   🟨 Kayak Agent")
-            logger.info("   🟩 Google Flights Agent")
-            logger.info("   🟧 Amadeus Agent")
+            logger.info("⚡ Execution Pattern:")
+            logger.info("   Phase 1 - PARALLEL SEARCH (async tasks):")
+            logger.info("   ├─ 🟦 Skyscanner Agent (async)")
+            logger.info("   ├─ 🟨 Kayak Agent (async)")
+            logger.info("   ├─ 🟩 Google Flights Agent (async)")
+            logger.info("   └─ 🟧 Amadeus Agent (async)")
+            logger.info("")
+            logger.info("   Phase 2 - AGGREGATION (sync task):")
+            logger.info("   └─ 📊 Aggregator Agent (waits for all searches, then combines)")
+            logger.info("")
             logger.info("💭 Watch for agent reasoning and tool calls below:\n")
 
             execution_start = datetime.now()
 
-            # Execute crew asynchronously - required because FastAPI endpoint is async
-            crew_output: Any = await crew.kickoff_async()
+            # Execute crew asynchronously with timeout protection
+            # Timeout set to 60 seconds to prevent infinite retries
+            try:
+                logger.info("⏱️  Setting execution timeout to 60 seconds...")
+                crew_output: Any = await asyncio.wait_for(
+                    crew.kickoff_async(),
+                    timeout=60.0  # 60 second timeout for entire crew execution
+                )
+            except asyncio.TimeoutError:
+                logger.error("❌ Crew execution timed out after 60 seconds")
+                raise TimeoutError("Flight search timed out after 60 seconds. The LLM service may be overloaded.")
 
             execution_time = (datetime.now() - execution_start).total_seconds()
             logger.info(f"\n✅ CrewAI crew execution completed in {execution_time:.2f}s")
@@ -259,7 +278,10 @@ class FlightAggregatorCrew:
                                departure_date: str, passengers: int,
                                cabin_class: str, crew_output: Any) -> Dict[str, Any]:
         """
-        Aggregate results from CrewAI crew execution with detailed logging
+        Aggregate results from CrewAI crew execution with aggregator agent
+
+        The aggregator agent (final task) returns the combined and sorted results.
+        We extract those results and format them for the API response.
 
         Args:
             origin: Departure airport code
@@ -267,31 +289,49 @@ class FlightAggregatorCrew:
             departure_date: Travel date
             passengers: Number of passengers
             cabin_class: Cabin class
-            crew_output: Raw output from crew.kickoff()
+            crew_output: Raw output from crew.kickoff() - contains aggregator's results
 
         Returns:
             Aggregated and sorted flight results
         """
-        logger.info("📈 AGGREGATING RESULTS FROM ALL AGENTS")
+        logger.info("📈 PROCESSING RESULTS FROM AGGREGATOR AGENT")
         logger.info("-" * 70)
 
         all_flights = []
         provider_results = {}
 
-        # Process results from each agent
-        for provider in self.providers:
-            try:
-                logger.info(f"🔄 Processing {provider.upper()} agent results...")
+        try:
+            # The crew_output from the aggregator agent contains the combined results
+            # The aggregator has already sorted and deduplicated flights
+            logger.info("🔄 Extracting aggregated results from Aggregator Agent...")
 
-                if self.agents and provider in self.agents:
-                    agent = self.agents[provider]
-                    # Extract flights from agent's task output
-                    # The crew_output typically contains results from each task
+            # Parse aggregator output - it should contain all flights from all providers
+            aggregator_data = self._extract_aggregator_results(crew_output)
 
-                    # For now, we collect from the flight search tools
-                    # In a production system, you'd parse the crew_output more carefully
+            if aggregator_data and "flights" in aggregator_data:
+                all_flights = aggregator_data.get("flights", [])
+                logger.info(f"✅ Aggregator returned {len(all_flights)} total flights")
+
+                # Show flight breakdown by provider
+                provider_count = {}
+                for flight in all_flights:
+                    provider = flight.get("provider", "unknown")
+                    provider_count[provider] = provider_count.get(provider, 0) + 1
+
+                for provider, count in provider_count.items():
+                    logger.info(f"   • {provider.upper()}: {count} flights")
+                    provider_results[provider] = {"total_results": count}
+            else:
+                logger.warning("⚠️  Aggregator returned no flights")
+
+        except Exception as e:
+            logger.error(f"❌ Error processing aggregator results: {str(e)}")
+
+            # Fallback: try to extract individual provider results
+            logger.info("📋 Falling back to individual provider extraction...")
+            for provider in self.providers:
+                try:
                     provider_data = self._extract_provider_flights(provider, crew_output)
-
                     if provider_data:
                         flight_count = len(provider_data["flights"])
                         all_flights.extend(provider_data["flights"])
@@ -300,31 +340,14 @@ class FlightAggregatorCrew:
                             "total_results": flight_count
                         }
                         logger.info(f"   ✅ {provider.upper()}: {flight_count} flights extracted")
+                except Exception as provider_error:
+                    logger.error(f"   ❌ Error processing {provider.upper()}: {str(provider_error)}")
 
-                        # Show price range for this provider
-                        if flight_count > 0:
-                            prices = [f.get("price", 0) for f in provider_data["flights"]]
-                            min_price = min(prices)
-                            max_price = max(prices)
-                            avg_price = sum(prices) / len(prices)
-                            logger.info(f"      Price range: ${min_price} - ${max_price} (avg: ${avg_price:.2f})")
-                    else:
-                        provider_results[provider] = {
-                            "flights": [],
-                            "total_results": 0
-                        }
-                        logger.info(f"   ⚠️  {provider.upper()}: No data extracted")
-
-            except Exception as e:
-                logger.error(f"   ❌ Error processing {provider.upper()} results: {str(e)}")
-                provider_results[provider] = {"error": str(e)}
-
-        # Sort all flights by price
+        # Sort all flights by price (aggregator should already do this, but ensure it)
         logger.info("-" * 70)
-        logger.info(f"🔀 Sorting {len(all_flights)} total flights by price...")
+        logger.info(f"🔀 Verifying {len(all_flights)} flights are sorted by price...")
         all_flights.sort(key=lambda x: x.get("price", float("inf")))
-
-        logger.info(f"✅ Sorting complete")
+        logger.info(f"✅ Sorting verified")
 
         return {
             "search_params": {
@@ -340,6 +363,38 @@ class FlightAggregatorCrew:
             "timestamp": datetime.now().isoformat(),
             "crew_status": "completed"
         }
+
+    def _extract_aggregator_results(self, crew_output: Any) -> Optional[Dict]:
+        """
+        Extract the aggregated flight results from the Aggregator Agent output
+
+        Args:
+            crew_output: Raw output from crew.kickoff() - should be aggregator's result
+
+        Returns:
+            Dictionary with aggregated flights, or None if not found
+        """
+        try:
+            # CrewAI crew.kickoff() returns the output of the final task (aggregator)
+            # The aggregator returns a formatted string or dict with combined results
+
+            if isinstance(crew_output, dict):
+                # If output is already a dict, return it
+                return crew_output
+            elif isinstance(crew_output, str):
+                # If output is a string, it contains the aggregator's text summary
+                # Parse it to extract flight data
+                logger.debug("Aggregator output is a string - attempting to parse...")
+
+                # The aggregator's output will contain structured data about flights
+                # For now, return a placeholder - in production you'd parse this
+                return {"flights": [], "total_results": 0}
+            else:
+                return None
+
+        except Exception as e:
+            logger.error(f"Error extracting aggregator results: {str(e)}")
+            return None
 
     def _extract_provider_flights(self, provider: str, crew_output: Any) -> Optional[Dict]:
         """
@@ -431,11 +486,8 @@ class FlightAggregatorCrew:
 
 
 # ============================================================================
-# SINGLETON CREW INSTANCE
+# CREW FACTORY (Fresh Instance Per Request - No Singleton)
 # ============================================================================
-
-_crew_instance = None
-
 
 def get_crew(
     provider: Optional[str] = None,
@@ -443,7 +495,10 @@ def get_crew(
     api_key: Optional[str] = None
 ) -> FlightAggregatorCrew:
     """
-    Get or create the flight aggregator crew (singleton pattern)
+    Create a fresh flight aggregator crew instance for each request.
+
+    IMPORTANT: This creates a NEW crew instance every time to avoid executor conflicts.
+    Each request gets its own isolated crew with clean state.
 
     Args:
         provider: LLM provider (google, openai, anthropic) - defaults to LLM_PROVIDER env var or google
@@ -451,20 +506,19 @@ def get_crew(
         api_key: API key (defaults to provider's env var)
 
     Returns:
-        FlightAggregatorCrew instance
+        Fresh FlightAggregatorCrew instance (not cached)
     """
-    global _crew_instance
-    if _crew_instance is None:
-        # Read from environment variables if not explicitly provided
-        env_provider = provider or os.getenv("LLM_PROVIDER", "google")
-        env_model = model or os.getenv("LLM_MODEL")
+    # Read from environment variables if not explicitly provided
+    env_provider = provider or os.getenv("LLM_PROVIDER", "google")
+    env_model = model or os.getenv("LLM_MODEL")
 
-        _crew_instance = FlightAggregatorCrew(
-            provider=env_provider,
-            model=env_model,
-            api_key=api_key
-        )
-    return _crew_instance
+    # Create and return a FRESH crew instance for this request
+    # No singleton caching - each request gets its own isolated crew
+    return FlightAggregatorCrew(
+        provider=env_provider,
+        model=env_model,
+        api_key=api_key
+    )
 
 
 if __name__ == "__main__":

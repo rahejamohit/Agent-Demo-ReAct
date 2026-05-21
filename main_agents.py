@@ -154,11 +154,15 @@ async def search_flights(search: FlightSearch):
             f"(LLM: {provider_name}/{model_override or config['default_model']})"
         )
 
-        # Get the crew with the configured provider and model
+        # Get a FRESH crew instance for this request
+        # Each request gets its own isolated crew to avoid executor conflicts
         crew = get_crew(
             provider=provider_name,
             model=model_override
         )
+
+        logger.info("✅ Fresh crew instance created for this request")
+
         result = await crew.search_flights(
             origin=search.origin,
             destination=search.destination,
@@ -173,9 +177,51 @@ async def search_flights(search: FlightSearch):
     except ValueError as e:
         logger.error(f"❌ Invalid parameters: {str(e)}")
         raise HTTPException(status_code=400, detail=str(e))
+    except TimeoutError as e:
+        logger.error(f"❌ Crew execution timeout: {str(e)}")
+        raise HTTPException(
+            status_code=504,
+            detail="Flight search timed out after 60 seconds. The LLM service may be overloaded. Please try again in a moment."
+        )
     except Exception as e:
-        logger.error(f"❌ Crew search failed: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Crew search failed: {str(e)}")
+        error_msg = str(e)
+
+        # RATE LIMIT ERROR (429) - Check first and propagate immediately
+        if "429" in error_msg or "rate limit" in error_msg.lower() or "quota" in error_msg.lower() or "too many requests" in error_msg.lower():
+            logger.error(f"❌ Rate limit exceeded: {error_msg}")
+            raise HTTPException(
+                status_code=429,
+                detail="LLM service rate limit exceeded (429). Please wait a moment and try again."
+            )
+
+        # EXECUTOR ALREADY RUNNING ERROR - This shouldn't happen with fresh crews, but handle it
+        elif "executor is already running" in error_msg.lower() or "concurrent" in error_msg.lower():
+            logger.error(f"❌ Executor conflict: {error_msg}")
+            raise HTTPException(
+                status_code=503,
+                detail="Flight search service is busy. Please try again in a moment."
+            )
+
+        # Authentication error (401/403)
+        elif "401" in error_msg or "403" in error_msg or "unauthorized" in error_msg.lower() or "authentication" in error_msg.lower() or "invalid api key" in error_msg.lower():
+            logger.error(f"❌ Authentication failed: {error_msg}")
+            raise HTTPException(
+                status_code=401,
+                detail="LLM authentication failed. Please check your API key configuration."
+            )
+
+        # Connection/timeout error
+        elif "timeout" in error_msg.lower() or "connection" in error_msg.lower() or "connection refused" in error_msg.lower():
+            logger.error(f"❌ Connection error: {error_msg}")
+            raise HTTPException(
+                status_code=503,
+                detail="LLM service is temporarily unavailable. Please try again in a moment."
+            )
+
+        # Generic error
+        else:
+            logger.error(f"❌ Crew search failed: {error_msg}")
+            raise HTTPException(status_code=500, detail=f"Crew search failed: {error_msg}")
 
 
 @app.get(

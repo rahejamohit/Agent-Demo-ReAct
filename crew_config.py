@@ -20,7 +20,7 @@ PROVIDER_CONFIG = {
     "google": {
         "prefix": "gemini",
         "env_var": "GOOGLE_API_KEY",
-        "default_model": "gemini-3-flash-preview",
+        "default_model": "gemini-2.5-flash",
         "description": "Google Gemini"
     },
     "openai": {
@@ -158,7 +158,9 @@ def create_agents(
     llm = LLM(
         model=f"{config['prefix']}/{model}",
         api_key=api_key,
-        temperature=0.7
+        temperature=0.7,
+        max_retries=2,              # Max 2 retries on LLM failures
+        request_timeout=30          # 30 second timeout per request
     )
 
     # Log provider info
@@ -200,6 +202,14 @@ def create_agents(
             tools=[search_amadeus],
             llm=llm,
             verbose=True
+        ),
+        "aggregator": Agent(
+            role="Flight Results Aggregator",
+            goal="Combine and aggregate flight search results from all providers into a single sorted list by price",
+            backstory="You are an expert at aggregating flight data from multiple sources, deduplicating entries, and organizing them by price to provide users with the best options across all providers.",
+            tools=[],  # Aggregator doesn't need tools, it processes existing results
+            llm=llm,
+            verbose=True
         )
     }
 
@@ -229,23 +239,38 @@ def create_tasks(agents: Dict[str, Agent], origin: str, destination: str,
         Task(
             description=f"Search for {passengers} passenger(s) flight(s) from {origin} to {destination} on {departure_date} on Skyscanner. Find the cheapest options.",
             agent=agents["skyscanner"],
+            async_execution=True,
             expected_output="A list of flights from Skyscanner with prices, airlines, departure/arrival times, and booking URLs"
         ),
         Task(
             description=f"Search for {passengers} passenger(s) flight(s) from {origin} to {destination} on {departure_date} on Kayak. Find the best value options.",
             agent=agents["kayak"],
+            async_execution=True,
             expected_output="A list of flights from Kayak with prices, airlines, departure/arrival times, and booking URLs"
         ),
         Task(
             description=f"Search for {passengers} passenger(s) flight(s) from {origin} to {destination} on {departure_date} on Google Flights. Analyze price trends.",
             agent=agents["google_flights"],
+            async_execution=True,
             expected_output="A list of flights from Google Flights with prices, airlines, departure/arrival times, and booking URLs"
         ),
         Task(
             description=f"Search for {passengers} passenger(s) flight(s) from {origin} to {destination} on {departure_date} on Amadeus. Find premium options.",
             agent=agents["amadeus"],
+            async_execution=True,
             expected_output="A list of flights from Amadeus with prices, airlines, departure/arrival times, and booking URLs"
         )
     ]
 
-    return tasks
+    # Add aggregator task that combines results from all search tasks
+    # This task runs AFTER all async search tasks complete (synchronously)
+    aggregator_task = Task(
+        description=f"Take the flight search results from Skyscanner, Kayak, Google Flights, and Amadeus agents and combine them into a single aggregated list. Remove duplicates, sort by price (cheapest first), and ensure each flight has provider information and booking URL.",
+        agent=agents["aggregator"],
+        expected_output="A consolidated list of all flights from all providers, deduplicated, sorted by price with provider tags and booking URLs",
+        async_execution=False,  # Sync task - runs after all async tasks complete
+        context=tasks  # Explicitly declare dependency on all 4 search tasks
+    )
+
+    # Return all tasks: 4 async search tasks + 1 sync aggregator task
+    return tasks + [aggregator_task]
