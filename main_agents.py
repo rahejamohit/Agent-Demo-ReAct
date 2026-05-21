@@ -69,18 +69,24 @@ async def health_check():
 async def root():
     """API info endpoint"""
     return {
-        "name": "Flight Price Aggregator API - CrewAI System",
+        "name": "Flight Price Aggregator API - CrewAI Multi-Provider System",
         "version": "1.0.0",
-        "framework": "CrewAI",
+        "framework": "CrewAI 1.14.5",
         "architecture": "Multi-Agent Task-Based Orchestration",
         "agents": ["Skyscanner", "Kayak", "Google Flights", "Amadeus"],
+        "llm_providers": ["google (Gemini)", "openai (GPT-4)", "anthropic (Claude)"],
         "endpoints": {
             "health": "/health",
             "search_flights": "/api/v1/flights/search",
             "agent_status": "/api/v1/agents/status",
             "docs": "/docs"
         },
-        "docs": "Visit /docs for interactive API documentation"
+        "docs": "Visit /docs for interactive API documentation",
+        "llm_setup": {
+            "google": "Set GOOGLE_API_KEY environment variable",
+            "openai": "Set OPENAI_API_KEY environment variable",
+            "anthropic": "Set ANTHROPIC_API_KEY environment variable"
+        }
     }
 
 
@@ -116,22 +122,44 @@ async def search_flights(search: FlightSearch):
     - Each flight includes booking URL
     - Provider information for each flight
 
-    **Note**: Requires GOOGLE_API_KEY environment variable
+    **LLM Configuration:**
+    - Set LLM_PROVIDER environment variable (google, openai, anthropic) - default: google
+    - Set LLM_MODEL environment variable for specific model override (optional)
+    - Set respective API key: GOOGLE_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY
     """
     try:
-        # Verify API key is configured
-        if not os.getenv("GOOGLE_API_KEY"):
-            logger.error("❌ GOOGLE_API_KEY not configured")
+        from crew_config import PROVIDER_CONFIG
+
+        # Read LLM provider and model from environment variables
+        provider_name = os.getenv("LLM_PROVIDER", "google")
+        model_override = os.getenv("LLM_MODEL")
+
+        # Validate provider
+        if provider_name not in PROVIDER_CONFIG:
+            supported = ", ".join(PROVIDER_CONFIG.keys())
+            raise ValueError(f"Unsupported provider '{provider_name}'. Supported: {supported}")
+
+        config = PROVIDER_CONFIG[provider_name]
+        api_key = os.getenv(config["env_var"])
+
+        if not api_key:
+            logger.error(f"❌ {config['env_var']} not configured")
             raise HTTPException(
                 status_code=500,
-                detail="Crew system not configured: GOOGLE_API_KEY required"
+                detail=f"Crew system not configured: {config['env_var']} required"
             )
 
-        logger.info(f"🤖 CrewAI Search: {search.origin} → {search.destination} on {search.departure_date}")
+        logger.info(
+            f"🤖 CrewAI Search: {search.origin} → {search.destination} on {search.departure_date} "
+            f"(LLM: {provider_name}/{model_override or config['default_model']})"
+        )
 
-        # Get the crew and execute search
-        crew = get_crew()
-        result = crew.search_flights(
+        # Get the crew with the configured provider and model
+        crew = get_crew(
+            provider=provider_name,
+            model=model_override
+        )
+        result = await crew.search_flights(
             origin=search.origin,
             destination=search.destination,
             departure_date=search.departure_date,
@@ -165,6 +193,12 @@ async def agent_status():
     - Model information
     - Agent specialties
     """
+    from crew_config import PROVIDER_CONFIG
+
+    provider_name = os.getenv("LLM_PROVIDER", "google")
+    config = PROVIDER_CONFIG.get(provider_name, {})
+    api_key_configured = bool(os.getenv(config.get("env_var", "")))
+
     crew = get_crew()
     crew_info = crew.get_agent_info()
 
@@ -174,7 +208,9 @@ async def agent_status():
         "agents": crew_info["agents"],
         "total_agents": crew_info["total_agents"],
         "timestamp": crew_info["timestamp"],
-        "api_key_configured": bool(os.getenv("GOOGLE_API_KEY"))
+        "llm_provider": provider_name,
+        "llm_model": os.getenv("LLM_MODEL"),
+        "api_key_configured": api_key_configured
     }
 
 

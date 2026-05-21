@@ -1,16 +1,21 @@
-# Flight Price Aggregator API - CrewAI System (v1.0)
+# Flight Price Aggregator API - CrewAI Multi-Provider System (v2.0)
 
-A **production-ready multi-agent system** using **CrewAI** to intelligently fetch and aggregate flight prices from multiple providers via Claude AI.
+A **production-ready multi-agent system** using **CrewAI** to intelligently fetch and aggregate flight prices from multiple providers with **flexible LLM provider support** (Google Gemini, OpenAI GPT-4, Anthropic Claude).
 
-## 🤖 Architecture: CrewAI Multi-Agent Orchestration
+## 🤖 Architecture: CrewAI Multi-Agent Orchestration with Multi-Provider LLM
 
 ```
 FastAPI Backend (localhost:8080)
 │
 ├── API Endpoints
-│   ├── POST /api/v1/agents/search      (CrewAI-powered search)
-│   ├── GET /api/v1/agents/status       (Crew status)
+│   ├── POST /api/v1/flights/search      (Flight search - LLM provider from env)
+│   ├── GET /api/v1/agents/status        (Crew status & LLM configuration)
 │   └── GET /health                      (Health check)
+│
+├── Environment Configuration
+│   ├── LLM_PROVIDER (google, openai, anthropic)
+│   ├── LLM_MODEL (optional override)
+│   └── Corresponding API Key (GOOGLE_API_KEY, OPENAI_API_KEY, ANTHROPIC_API_KEY)
 │
 └── CrewAI System (Framework)
     │
@@ -19,6 +24,11 @@ FastAPI Backend (localhost:8080)
     │   ├── Kayak Agent → search_kayak task
     │   ├── Google Flights Agent → search_google_flights task
     │   └── Amadeus Agent → search_amadeus task
+    │
+    ├── LLM Provider (Dynamic)
+    │   ├── Google Gemini (default)
+    │   ├── OpenAI GPT-4
+    │   └── Anthropic Claude
     │
     └── Tool Definitions (@tool decorator)
         ├── search_skyscanner
@@ -33,29 +43,43 @@ Project Files
 ├── models.py                   # Pydantic models & schemas
 ├── example_agent_client.py     # Python client example
 ├── requirements.txt            # Dependencies (includes crewai)
+├── .env.example                # Environment variables template
+├── MULTI_PROVIDER_SETUP.md     # Multi-provider LLM configuration guide
 ├── README.md                   # This file
-├── README_CREWAI.md            # CrewAI-specific documentation
-├── CREWAI_MIGRATION.md         # Migration guide from ReAct → CrewAI
-├── AGENT_SYSTEM.md             # ReAct documentation (reference)
-└── AGENT_QUICKSTART.md         # Setup guide
+└── README_CREWAI.md            # CrewAI-specific documentation
 ```
 
 ## 🚀 Quick Start (5 Minutes)
 
-### Step 1: Get API Key
-Get your Anthropic API key from https://console.anthropic.com
+### Step 1: Choose Your LLM Provider
 
-### Step 2: Set Environment Variable
+**Option A: Google Gemini (Recommended for cost)**
 ```bash
-export ANTHROPIC_API_KEY="sk-ant-your-key-here"
+# Get key from: https://ai.google.dev
+export GOOGLE_API_KEY="your-google-api-key"
+export LLM_PROVIDER="google"
 ```
 
-### Step 3: Install Dependencies
+**Option B: OpenAI GPT-4 (Recommended for quality)**
+```bash
+# Get key from: https://platform.openai.com
+export OPENAI_API_KEY="your-openai-api-key"
+export LLM_PROVIDER="openai"
+```
+
+**Option C: Anthropic Claude (Recommended for balance)**
+```bash
+# Get key from: https://console.anthropic.com
+export ANTHROPIC_API_KEY="your-anthropic-api-key"
+export LLM_PROVIDER="anthropic"
+```
+
+### Step 2: Install Dependencies
 ```bash
 pip install -r requirements.txt
 ```
 
-### Step 4: Run the CrewAI System
+### Step 3: Run the System
 ```bash
 python main_agents.py
 ```
@@ -66,14 +90,15 @@ You should see:
 📍 URL: http://localhost:8080
 📚 Docs: http://localhost:8080/docs
 🎯 Framework: CrewAI
-🧠 Agents: Skyscanner, Kayak, Google Flights, Amadeus
+🧠 LLM Provider: google (or openai/anthropic based on env var)
+🤖 Agents: Skyscanner, Kayak, Google Flights, Amadeus
 ```
 
-### Step 5: Test the Crew
+### Step 4: Test the System
 **Option A: Interactive API Docs**
 - Open http://localhost:8080/docs
-- Click "Try it out" on `/api/v1/agents/search`
-- Click "Execute"
+- Click "Try it out" on `/api/v1/flights/search`
+- Submit a search request
 
 **Option B: Python Client**
 ```bash
@@ -82,7 +107,7 @@ python example_agent_client.py
 
 **Option C: curl**
 ```bash
-curl -X POST "http://localhost:8080/api/v1/agents/search" \
+curl -X POST "http://localhost:8080/api/v1/flights/search" \
   -H "Content-Type: application/json" \
   -d '{
     "origin": "JFK",
@@ -95,22 +120,25 @@ curl -X POST "http://localhost:8080/api/v1/agents/search" \
 
 ## 📡 API Endpoints
 
-### CrewAI-Powered Search (v2) ⭐ **Use This**
-- `POST /api/v1/agents/search` - Search flights using CrewAI crew
-- `GET /api/v1/agents/status` - Get crew and agent system status
+### Flight Search (v1)
+- `POST /api/v1/flights/search` - Search flights using CrewAI with configured LLM provider
+  - **LLM Provider:** Set via `LLM_PROVIDER` environment variable
+  - **Request body:** origin, destination, departure_date, passengers, cabin_class
+  - **Response:** Aggregated flights sorted by price with booking URLs
 
-### Health & Status
+### Agent Status
+- `GET /api/v1/agents/status` - Get crew and agent system status
+  - Returns: Agent configuration, LLM provider, model in use
+
+### Health & Info
 - `GET /health` - Health check endpoint
 - `GET /` - API info and documentation links
 
-### Legacy Endpoints (v1) - Deprecated
-- `POST /api/v1/flights/search` - ⚠️ Redirects to agent-based search
-
 ## 📖 Usage Examples
 
-### Search Flights with Agents
+### Search Flights (Works with Any Configured LLM)
 ```bash
-curl -X POST "http://localhost:8080/api/v1/agents/search" \
+curl -X POST "http://localhost:8080/api/v1/flights/search" \
   -H "Content-Type: application/json" \
   -d '{
     "origin": "JFK",
@@ -121,6 +149,8 @@ curl -X POST "http://localhost:8080/api/v1/agents/search" \
   }'
 ```
 
+**Note:** The same API request works regardless of which LLM provider is configured via environment variables.
+
 ### Response Example
 ```json
 {
@@ -128,7 +158,8 @@ curl -X POST "http://localhost:8080/api/v1/agents/search" \
     "origin": "JFK",
     "destination": "LAX",
     "departure_date": "2026-06-15",
-    "passengers": 1
+    "passengers": 1,
+    "cabin_class": "economy"
   },
   "flights": [
     {
@@ -143,63 +174,28 @@ curl -X POST "http://localhost:8080/api/v1/agents/search" \
       "currency": "USD",
       "booking_url": "https://skyscanner.com/book/...",
       "seats_available": 12
-    },
-    {
-      "provider": "kayak",
-      "airline": "United",
-      "flight_number": "UA456",
-      "departure": "2026-06-15T10:00:00",
-      "arrival": "2026-06-15T13:45:00",
-      "duration_minutes": 345,
-      "stops": 1,
-      "price": 258.50,
-      "currency": "USD",
-      "booking_url": "https://kayak.com/book/...",
-      "seats_available": 8
     }
   ],
   "total_results": 48,
-  "provider_results": {
-    "skyscanner": { "flights": [...], "total_results": 12 },
-    "kayak": { "flights": [...], "total_results": 15 },
-    "google_flights": { "flights": [...], "total_results": 14 },
-    "amadeus": { "flights": [...], "total_results": 7 }
-  },
   "timestamp": "2026-05-14T10:30:00"
 }
 ```
 
-### Check Agent Status
+### Check Agent & LLM Status
 ```bash
 curl http://localhost:8080/api/v1/agents/status
 ```
 
-Returns information about each agent and its configuration.
-
-### Python Client Example
-```python
-from example_agent_client import FlightAgentClient
-
-client = FlightAgentClient()
-results = client.search_flights(
-    origin="JFK",
-    destination="LAX",
-    departure_date="2026-06-15",
-    passengers=1
-)
-
-for flight in results["flights"][:3]:
-    print(f"{flight['provider']}: ${flight['price']} ({flight['airline']})")
-```
+Returns information about agents, LLM provider, and model in use.
 
 ## ✨ Key Features
 
+✅ **Multi-LLM Support** - Switch between Google Gemini, OpenAI, and Anthropic via environment variables  
 ✅ **CrewAI Framework** - Higher-level agent orchestration with tasks  
 ✅ **Multi-Agent System** - 4 specialized agents (Skyscanner, Kayak, Google Flights, Amadeus)  
-✅ **Claude API Integration** - Uses Claude 3.5 Sonnet with tool use  
 ✅ **Task-Based Workflow** - Explicit task definitions for agent collaboration  
-✅ **Built-in Memory** - Automatic memory management per agent  
-✅ **Multi-Provider Aggregation** - Fetches from all providers with orchestration  
+✅ **Clean API** - No LLM provider details exposed to clients (security-first design)  
+✅ **Multi-Provider Aggregation** - Fetches from all flight providers with orchestration  
 ✅ **Price Sorting** - Results automatically sorted by price (cheapest first)  
 ✅ **Direct Booking Links** - Each flight includes provider booking URL  
 ✅ **Provider Information** - Each result tagged with its source  
@@ -208,33 +204,31 @@ for flight in results["flights"][:3]:
 ✅ **Structured Logging** - Monitoring-ready logs for debugging  
 ✅ **Error Handling** - Comprehensive error responses  
 ✅ **Production Ready** - Clean code, type hints, documentation  
-✅ **Multi-LLM Support** - Works with Claude, Gemini, GPT-4, and more  
+✅ **Type Safe** - Pydantic models for request/response validation  
 
-## 🤖 How CrewAI Works
+## 🤖 How It Works
 
-### Agent-Task Architecture
-Each agent is specialized with role, goal, and tools. The crew orchestrates task execution:
+### Multi-Provider LLM Architecture
 
-1. **AGENT DEFINITION** 🎯
-   - Each agent has a role (e.g., "Skyscanner Flight Search Specialist")
-   - Goal: What it should accomplish
-   - Backstory: Context about its expertise
-   - Tools: Flight search functions it can use
+1. **Environment Configuration** 🔧
+   - Admin sets `LLM_PROVIDER` (google, openai, or anthropic)
+   - System reads corresponding API key from environment
+   - No client involvement in provider selection
 
-2. **TASK ASSIGNMENT** 📋
-   - Crew defines tasks for each agent
-   - Example task: "Search for flights from JFK to LAX on 2026-06-15"
-   - Agent receives clear instructions about what to find
+2. **Agent Initialization** 🎯
+   - CrewAI creates 4 specialized agents
+   - All agents use the same LLM provider
+   - Each agent gets access to flight search tools
 
-3. **TOOL EXECUTION** 🛠️
-   - Agent uses its tools to complete the task
-   - Example: Calls `search_skyscanner()` tool
-   - Gets results from provider APIs
+3. **Task Execution** 📋
+   - Each agent receives task to search specific provider
+   - Agent uses configured LLM to reason about search
+   - Tools execute actual flight search
 
-4. **RESULT AGGREGATION** 📊
+4. **Result Aggregation** 📊
    - Crew collects results from all agents
-   - Combines and sorts all flights
-   - Returns structured response to user
+   - Combines, deduplicates, and sorts by price
+   - Returns aggregated response
 
 ### Specialized Agents
 
@@ -245,116 +239,129 @@ Each agent is specialized with role, goal, and tools. The crew orchestrates task
 | 🟩 **Google Flights Agent** | Google | Flexible options | Price trends, alternatives |
 | 🟧 **Amadeus Agent** | Amadeus | Enterprise inventory | Premium, ancillaries |
 
-## 📊 System Architecture
+## ⚙️ Configuration
 
-### Request Flow
+### Required Environment Variables
+
+**Choose ONE LLM Provider and set its API key:**
+
+```bash
+# Option 1: Google Gemini
+export GOOGLE_API_KEY="your-key"
+export LLM_PROVIDER="google"
+
+# Option 2: OpenAI GPT-4
+export OPENAI_API_KEY="your-key"
+export LLM_PROVIDER="openai"
+
+# Option 3: Anthropic Claude
+export ANTHROPIC_API_KEY="your-key"
+export LLM_PROVIDER="anthropic"
 ```
-1. User sends search request
-   POST /api/v1/agents/search
-   {origin: "JFK", destination: "LAX", ...}
-   
-2. FlightAggregatorCrew initializes
-   - Creates 4 specialized agents
-   - Defines 4 tasks (one per provider)
-   
-3. Crew executes all tasks
-   - Skyscanner Agent executes search_skyscanner task
-   - Kayak Agent executes search_kayak task
-   - Google Flights Agent executes search_google_flights task
-   - Amadeus Agent executes search_amadeus task
-   
-4. Crew collects and aggregates results
-   - Gathers flights from all tasks
-   - Removes duplicates
-   - Sorts by price (cheapest first)
-   - Adds provider information
-   
-5. Returns aggregated response to user
-   [~48 flights from all providers, sorted by price]
+
+### Optional Environment Variables
+
+```bash
+# Override default model for the selected provider
+export LLM_MODEL="gemini-2-flash"  # or gpt-4-turbo, claude-3-opus, etc.
+```
+
+### Using .env File
+
+Copy `.env.example` to `.env` and fill in your values:
+
+```bash
+cp .env.example .env
+```
+
+Then edit `.env`:
+```
+LLM_PROVIDER=google
+GOOGLE_API_KEY=your_key_here
 ```
 
 ## 🔌 Integration with Frontend
 
 This backend is designed for the **Flight Price Agentic System**:
 
-1. **Frontend** sends search request to `/api/v1/agents/search`
-2. **Agents** fetch flights from multiple providers (parallel execution)
-3. **Orchestrator** aggregates and sorts results
-4. **Frontend** displays results with direct booking links
-
-## ⚙️ Configuration
-
-### Required Environment Variables
-```bash
-# REQUIRED: Anthropic API Key
-ANTHROPIC_API_KEY=sk-ant-your-api-key-here
-```
-
-Get your key from: https://console.anthropic.com
-
-### Optional Environment Variables (Future)
-```
-# For real API integrations
-SKYSCANNER_API_KEY=xxx
-KAYAK_API_KEY=xxx
-GOOGLE_FLIGHTS_API_KEY=xxx
-AMADEUS_API_KEY=xxx
-
-# CORS Configuration
-CORS_ORIGINS=["http://localhost:3000","https://yourdomain.com"]
-```
+1. **Frontend** sends clean search requests (no LLM info)
+2. **Backend** uses configured LLM provider to orchestrate agent search
+3. **Agents** fetch flights from multiple providers
+4. **Orchestrator** aggregates and sorts results
+5. **Frontend** displays results with direct booking links
 
 ### CORS Configuration
-Currently set to allow all origins (`allow_origins=["*"]`). For production:
+
+Currently set to allow all origins. For production:
 
 ```python
+# In main_agents.py
 allow_origins=[
     "http://localhost:3000",
     "https://yourdomain.com"
 ]
 ```
 
-### Agent Configuration
-Agents are configured in `crew_config.py`:
-- Model: `claude-3-5-sonnet-20241022`
-- Max iterations per agent: 5
-- Memory: Enabled per agent
-- Tool use: Enabled
-- Verbose logging: Enabled for debugging
+## 📊 System Architecture
+
+### Request Flow
+```
+1. User sends search request (no LLM info)
+   POST /api/v1/flights/search
+   {origin: "JFK", destination: "LAX", ...}
+   
+2. Backend reads LLM provider from environment
+   - LLM_PROVIDER determines which provider to use
+   - Validates corresponding API key is set
+   
+3. FlightAggregatorCrew initializes with configured LLM
+   - Creates 4 specialized agents
+   - All agents share same LLM instance
+   - Defines 4 tasks (one per provider)
+   
+4. Crew executes all tasks with configured LLM
+   - Agents use LLM reasoning for search
+   - Tools execute actual flight searches
+   
+5. Crew collects and aggregates results
+   - Combines flights from all providers
+   - Sorts by price
+   - Adds provider information
+   
+6. Returns aggregated response to user
+   [~48 flights from all providers, sorted by price]
+```
+
+## 🔐 Security & Privacy
+
+✅ **LLM Provider Hidden from Clients** - Only backend knows which LLM is configured  
+✅ **Clean API Requests** - No sensitive configuration in request body  
+✅ **Environment-Based Configuration** - Only server admins can change LLM provider  
+✅ **API Keys Protected** - Credentials never transmitted in requests  
+✅ **CORS Enabled** - Controlled frontend access  
 
 ## 🚀 Next Steps & Enhancements
 
 ### Phase 1: Immediate (Production Ready)
 - [x] CrewAI framework implemented
+- [x] Multi-provider LLM support (Google, OpenAI, Anthropic)
 - [x] Multi-agent system (4 specialized agents)
 - [x] Task-based workflow setup
 - [x] Tool use capability enabled
 - [x] Mock data generators (realistic)
 - [ ] Real API integrations (Skyscanner, Amadeus, Google Flights, Kayak)
-- [ ] API key management for real providers
 
-### Phase 2: Optimization (Coming Soon)
-- [ ] **Parallel Task Execution** - Use CrewAI's concurrent task capabilities
-- [ ] **Advanced Prompts** - Fine-tune agent backstories and goals
+### Phase 2: Frontend (Coming Soon)
+- [ ] React/Vue frontend for flight search
+- [ ] Real-time flight price updates
+- [ ] Booking redirection links
+
+### Phase 3: Optimization & Scaling
 - [ ] **Caching** - Add Redis for result caching
-- [ ] **Result Deduplication** - Remove duplicate flights across providers
-- [ ] **LLM Switching** - Test with Gemini, GPT-4, and other models
-
-### Phase 3: Production Scaling
 - [ ] **Database** - Add PostgreSQL for persistent storage
-- [ ] **Authentication** - Implement API key and OAuth
 - [ ] **Rate Limiting** - Request throttling per user
 - [ ] **Monitoring** - Prometheus metrics and health checks
-- [ ] **Logging** - Enhanced structured logging
 - [ ] **Deployment** - Docker, Kubernetes, cloud platforms
-
-### Phase 4: Advanced Features
-- [ ] **Round-trip Flights** - Handle return flights intelligently
-- [ ] **Seat Selection** - Agents can compare seat options
-- [ ] **Price Monitoring** - Track price changes over time
-- [ ] **Alternative Airports** - Expand search to nearby airports
-- [ ] **Multi-language** - Support for different languages and currencies
-- [ ] **ML Optimization** - Learn which providers are best for certain routes
 
 ## 📝 Development
 
@@ -363,89 +370,27 @@ Agents are configured in `crew_config.py`:
 - **`crew_config.py`** - CrewAI agents, tools & configurations
 - **`flight_crew.py`** - Crew orchestrator and FlightAggregatorCrew class
 - **`main_agents.py`** - FastAPI endpoints and server
-- **`example_agent_client.py`** - Example client demonstrating usage
-
-### Key Classes
-- `FlightAggregatorCrew` - Main crew orchestration class
-- `Agent` - CrewAI agents with role, goal, and tools
-- Tool functions decorated with `@tool` decorator
 
 ### Testing
 ```bash
-# Run example client
-python example_agent_client.py
+# Run the system
+python main_agents.py
 
-# Test with curl
-curl -X POST http://localhost:8080/api/v1/agents/search \
+# In another terminal, test with curl
+curl -X POST http://localhost:8080/api/v1/flights/search \
   -H "Content-Type: application/json" \
   -d '{"origin": "JFK", "destination": "LAX", "departure_date": "2026-06-15"}'
+
+# Or use Python client
+python example_agent_client.py
 ```
-
-### Code Quality
-```bash
-# Format code
-black .
-
-# Lint
-flake8 .
-
-# Type checking
-mypy .
-```
-
-## 📈 Performance Notes
-
-### Current Performance
-- **Latency**: 5-15 seconds per search (sequential tasks)
-- **Results**: ~48 flights from 4 providers combined
-- **Mock Data**: Realistic pricing and airline simulation
-- **Cost**: ~0.1-0.5¢ per search (depends on Claude API usage)
-
-### Future Optimizations
-- **Parallel Task Execution** - CrewAI can execute tasks concurrently → 3-5 seconds
-- **Caching** - Cache results for identical searches
-- **Result Limiting** - Return top N results instead of all
-- **LLM Optimization** - Use faster models (Haiku) for initial filtering
-
-## 🧠 Understanding CrewAI
-
-**CrewAI** = Framework for orchestrating AI agents with roles, goals, and tools
-
-### Core Concepts
-```
-Agents (Specialists)
-    ↓
-Tasks (Assignments)
-    ↓
-Crew (Orchestrator)
-    ↓
-Results (Aggregated)
-```
-
-### Why CrewAI?
-- **Abstraction** - Hide complexity of agent orchestration
-- **Collaboration** - Agents work together effectively
-- **Scalability** - Easy to add more agents
-- **Flexibility** - Works with multiple LLMs (Claude, Gemini, GPT-4, etc.)
-- **Memory** - Built-in memory management per agent
-- **Tools** - Simple tool definition and execution
-
-### In Our System
-1. **Agents** are specialized by role and goal
-2. **Tasks** define what needs to be done
-3. **Crew** orchestrates agent collaboration
-4. **Tools** enable agents to search flights
-5. **Results** are aggregated and returned
-
-See [README_CREWAI.md](README_CREWAI.md) for detailed CrewAI documentation or [CREWAI_MIGRATION.md](CREWAI_MIGRATION.md) for migration details.
 
 ## 📚 Documentation
 
-- **[README.md](README.md)** - This file (current version with CrewAI)
-- **[README_CREWAI.md](README_CREWAI.md)** ⭐ - CrewAI-specific documentation
-- **[CREWAI_MIGRATION.md](CREWAI_MIGRATION.md)** - Migration guide from ReAct → CrewAI
-- **[AGENT_QUICKSTART.md](AGENT_QUICKSTART.md)** - 5-minute setup guide
-- **[AGENT_SYSTEM.md](AGENT_SYSTEM.md)** - ReAct architecture (reference only)
+- **[README.md](README.md)** - This file (system overview)
+- **[MULTI_PROVIDER_SETUP.md](MULTI_PROVIDER_SETUP.md)** ⭐ - Multi-provider LLM configuration guide
+- **[README_CREWAI.md](README_CREWAI.md)** - CrewAI-specific documentation
+- **.env.example** - Environment variables template
 
 ## 🔗 Resources
 
@@ -453,12 +398,12 @@ See [README_CREWAI.md](README_CREWAI.md) for detailed CrewAI documentation or [C
 - [CrewAI Official Docs](https://docs.crewai.com)
 - [CrewAI GitHub Repository](https://github.com/joaomdmoura/crewAI)
 
-### Anthropic & Claude
-- [Anthropic API Documentation](https://docs.anthropic.com)
-- [Claude Models](https://docs.anthropic.com/en/docs/about/models/overview)
-- [Tool Use Guide](https://docs.anthropic.com/en/docs/build-with-claude/tool-use)
+### LLM Providers
+- [Google Gemini API](https://ai.google.dev)
+- [OpenAI API](https://platform.openai.com)
+- [Anthropic API](https://console.anthropic.com)
 
-### Flight APIs
+### Flight APIs (for future integration)
 - [Skyscanner API](https://rapidapi.com/skyscanner/api/skyscanner1)
 - [Amadeus API](https://developers.amadeus.com/)
 - [Google Flights API](https://rapidapi.com/apidojo/api/google-flights)
@@ -471,11 +416,12 @@ Internal League Flight System
 ## 💬 Support
 
 For issues or questions:
-1. Check [AGENT_QUICKSTART.md](AGENT_QUICKSTART.md) for setup issues
-2. Check [AGENT_SYSTEM.md](AGENT_SYSTEM.md) for architecture questions
-3. Review logs from `python main_agents.py` for debugging
-4. Verify ANTHROPIC_API_KEY is set: `echo $ANTHROPIC_API_KEY`
+1. Check [MULTI_PROVIDER_SETUP.md](MULTI_PROVIDER_SETUP.md) for LLM configuration
+2. Verify environment variables are set: `echo $LLM_PROVIDER`
+3. Check corresponding API key is set: `echo $GOOGLE_API_KEY` (or your provider)
+4. Review logs from `python main_agents.py` for debugging
+5. Check http://localhost:8080/docs for interactive API documentation
 
 ---
 
-**Built with ❤️ using CrewAI, Claude API, and Multi-Agent Architecture**
+**Built with ❤️ using CrewAI, Multi-Provider LLM Support, and Multi-Agent Architecture**

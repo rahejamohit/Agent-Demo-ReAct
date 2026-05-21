@@ -1,91 +1,73 @@
 """
-CrewAI Configuration for Flight Price Aggregator
-Defines agents, tools, and tasks for multi-provider flight search
+Flight Search Configuration for Flight Price Aggregator
+CrewAI agents and tasks with tool integration
+Uses CrewAI 1.14.5 native multi-provider LLM support
+Supports: Google Gemini, OpenAI, Anthropic
 """
 
-from crewai import Agent, Task
-from langchain_core.tools import tool
-from langchain_google_genai import ChatGoogleGenerativeAI
 import os
 import random
 from datetime import datetime, timedelta
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
+from crewai.tools import tool
+from crewai import Agent, Task, LLM
 
 # ============================================================================
-# FLIGHT SEARCH TOOLS
+# PROVIDER CONFIGURATION
 # ============================================================================
 
-@tool("search_skyscanner")
+PROVIDER_CONFIG = {
+    "google": {
+        "prefix": "gemini",
+        "env_var": "GOOGLE_API_KEY",
+        "default_model": "gemini-3-flash-preview",
+        "description": "Google Gemini"
+    },
+    "openai": {
+        "prefix": "openai",
+        "env_var": "OPENAI_API_KEY",
+        "default_model": "gpt-4",
+        "description": "OpenAI GPT-4"
+    },
+    "anthropic": {
+        "prefix": "anthropic",
+        "env_var": "ANTHROPIC_API_KEY",
+        "default_model": "claude-3-5-sonnet",
+        "description": "Anthropic Claude 3.5 Sonnet"
+    }
+}
+
+# ============================================================================
+# FLIGHT SEARCH TOOLS (with @tool decorator)
+# ============================================================================
+
+@tool
 def search_skyscanner(origin: str, destination: str, departure_date: str, passengers: int = 1) -> Dict[str, Any]:
-    """
-    Search flights on Skyscanner for deals and budget airlines.
-
-    Args:
-        origin: Departure airport IATA code (e.g., JFK)
-        destination: Arrival airport IATA code (e.g., LAX)
-        departure_date: Travel date in YYYY-MM-DD format
-        passengers: Number of passengers (1-9)
-
-    Returns:
-        Dictionary with flights list and metadata
-    """
+    """Search flights on Skyscanner for deals and budget airlines."""
     return _search_flights("skyscanner", origin, destination, departure_date, passengers)
 
 
-@tool("search_kayak")
+@tool
 def search_kayak(origin: str, destination: str, departure_date: str, passengers: int = 1) -> Dict[str, Any]:
-    """
-    Search flights on Kayak for best prices and ratings.
-
-    Args:
-        origin: Departure airport IATA code (e.g., JFK)
-        destination: Arrival airport IATA code (e.g., LAX)
-        departure_date: Travel date in YYYY-MM-DD format
-        passengers: Number of passengers (1-9)
-
-    Returns:
-        Dictionary with flights list and metadata
-    """
+    """Search flights on Kayak for best prices and ratings."""
     return _search_flights("kayak", origin, destination, departure_date, passengers)
 
 
-@tool("search_google_flights")
+@tool
 def search_google_flights(origin: str, destination: str, departure_date: str, passengers: int = 1) -> Dict[str, Any]:
-    """
-    Search flights on Google Flights for flexible options and price trends.
-
-    Args:
-        origin: Departure airport IATA code (e.g., JFK)
-        destination: Arrival airport IATA code (e.g., LAX)
-        departure_date: Travel date in YYYY-MM-DD format
-        passengers: Number of passengers (1-9)
-
-    Returns:
-        Dictionary with flights list and metadata
-    """
+    """Search flights on Google Flights for flexible options and price trends."""
     return _search_flights("google_flights", origin, destination, departure_date, passengers)
 
 
-@tool("search_amadeus")
+@tool
 def search_amadeus(origin: str, destination: str, departure_date: str, passengers: int = 1) -> Dict[str, Any]:
-    """
-    Search flights on Amadeus for premium options and ancillaries.
-
-    Args:
-        origin: Departure airport IATA code (e.g., JFK)
-        destination: Arrival airport IATA code (e.g., LAX)
-        departure_date: Travel date in YYYY-MM-DD format
-        passengers: Number of passengers (1-9)
-
-    Returns:
-        Dictionary with flights list and metadata
-    """
+    """Search flights on Amadeus for premium options and ancillaries."""
     return _search_flights("amadeus", origin, destination, departure_date, passengers)
 
 
 def _search_flights(provider: str, origin: str, destination: str,
                    departure_date: str, passengers: int = 1) -> Dict[str, Any]:
-    """Generate mock flight data"""
+    """Generate realistic mock flight data for a provider"""
     random.seed(hash(f"{provider}{origin}{destination}{departure_date}"))
 
     airlines = {
@@ -120,89 +102,103 @@ def _search_flights(provider: str, origin: str, destination: str,
 
 
 # ============================================================================
-# CREWAI AGENTS DEFINITION
+# AGENT CONFIGURATION
 # ============================================================================
 
-AGENT_CONFIG = {
-    "model": "gemini-3-flash-preview",
-    "max_iterations": 5,
-    "memory": True,
-    "verbose": True
-}
-
-
-def create_agents(model: str = "gemini-3-flash-preview", api_key: str = None) -> Dict[str, Agent]:
+def create_agents(
+    provider: str = "google",
+    model: Optional[str] = None,
+    api_key: Optional[str] = None
+) -> Dict[str, Agent]:
     """
-    Create specialized flight search agents for CrewAI.
+    Create CrewAI Agent objects with multi-provider LLM support using CrewAI 1.14.5
 
     Args:
-        model: LLM model to use
-        api_key: API key (defaults to GOOGLE_API_KEY env var)
+        provider: LLM provider to use (default: google)
+                 Supported: google, openai, anthropic
+        model: LLM model to use (defaults to provider's default model)
+               Examples:
+               - Google: gemini-3-flash-preview, gemini-2-flash
+               - OpenAI: gpt-4, gpt-4-turbo, gpt-3.5-turbo
+               - Anthropic: claude-3-5-sonnet, claude-3-opus
+        api_key: API key for the provider (defaults to provider's env var)
 
     Returns:
-        Dictionary of agents keyed by provider name
-    """
-    if api_key is None:
-        api_key = os.getenv("GOOGLE_API_KEY")
+        Dictionary of CrewAI Agent objects indexed by provider
 
-    # Initialize the Google Gemini LLM
-    llm = ChatGoogleGenerativeAI(
-        model=model,
-        google_api_key=api_key,
-        temperature=0.7,
-        max_tokens=2048
+    Raises:
+        ValueError: If provider is not supported or API key is missing
+    """
+    # Validate provider
+    if provider not in PROVIDER_CONFIG:
+        supported = ", ".join(PROVIDER_CONFIG.keys())
+        raise ValueError(f"Unsupported provider '{provider}'. Supported: {supported}")
+
+    config = PROVIDER_CONFIG[provider]
+
+    # Get or use default model
+    if model is None:
+        model = config["default_model"]
+
+    # Get API key from parameter or environment
+    if api_key is None:
+        api_key = os.getenv(config["env_var"])
+
+    if not api_key:
+        raise ValueError(
+            f"{config['env_var']} environment variable is not set. "
+            f"Please set your {config['description']} API key."
+        )
+
+    # Type assertion: api_key is guaranteed to be a string after the check above
+    assert api_key is not None
+
+    # Create CrewAI's native LLM instance with dynamic provider
+    # Format: {provider}/{model}
+    llm = LLM(
+        model=f"{config['prefix']}/{model}",
+        api_key=api_key,
+        temperature=0.7
     )
 
+    # Log provider info
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"🧠 LLM Provider: {config['description']} ({provider}/{model})")
+
+    # Define agents for each flight provider
+    # All agents share the same LLM instance
     agents = {
         "skyscanner": Agent(
             role="Skyscanner Flight Search Specialist",
             goal="Find the cheapest flights and best deals on Skyscanner",
-            backstory="""You are an expert at finding budget flights and deals.
-You specialize in identifying the cheapest fares and alternative airports that can save money.
-You excel at analyzing flight deals and recommending budget airlines.""",
+            backstory="You are an expert at finding budget-friendly flights on Skyscanner, specializing in low-cost carriers and special deals.",
             tools=[search_skyscanner],
             llm=llm,
-            max_iter=5,
-            memory=True,
             verbose=True
         ),
-
         "kayak": Agent(
             role="Kayak Flight Search Specialist",
             goal="Find the best value flights with ratings and customer satisfaction on Kayak",
-            backstory="""You are an expert at finding flights that balance price and quality.
-You specialize in flights with good customer ratings and reliable airlines.
-You excel at identifying value-for-money flight options.""",
+            backstory="You are skilled at finding flights on Kayak with the best value for money, considering both price and customer ratings.",
             tools=[search_kayak],
             llm=llm,
-            max_iter=5,
-            memory=True,
             verbose=True
         ),
-
         "google_flights": Agent(
             role="Google Flights Search Specialist",
             goal="Find flexible flight options and analyze price trends on Google Flights",
-            backstory="""You are an expert at finding flexible flight options and understanding price trends.
-You specialize in identifying alternative dates and comparing multiple routing options.
-You excel at maximizing travel flexibility and spotting price patterns.""",
+            backstory="You excel at finding flexible flight options on Google Flights and identifying price trends to help customers find the best time to book.",
             tools=[search_google_flights],
             llm=llm,
-            max_iter=5,
-            memory=True,
             verbose=True
         ),
-
         "amadeus": Agent(
             role="Amadeus Flight Search Specialist",
             goal="Find premium flights with seat options and ancillaries on Amadeus",
-            backstory="""You are an expert at finding premium flight options with detailed seat and ancillary information.
-You specialize in enterprise-grade flight inventory and premium airline offerings.
-You excel at identifying flights with excellent seat availability and service options.""",
+            backstory="You specialize in finding premium flight options on Amadeus with detailed seat configurations and ancillary services.",
             tools=[search_amadeus],
             llm=llm,
-            max_iter=5,
-            memory=True,
             verbose=True
         )
     }
@@ -211,45 +207,44 @@ You excel at identifying flights with excellent seat availability and service op
 
 
 # ============================================================================
-# CREWAI TASKS DEFINITION
+# TASK CONFIGURATION
 # ============================================================================
 
 def create_tasks(agents: Dict[str, Agent], origin: str, destination: str,
                 departure_date: str, passengers: int = 1) -> List[Task]:
     """
-    Create tasks for each agent to execute.
+    Create CrewAI Task objects for each agent
 
     Args:
-        agents: Dictionary of Agent objects
+        agents: Dictionary of CrewAI Agent objects
         origin: Departure airport code
         destination: Arrival airport code
-        departure_date: Travel date
+        departure_date: Travel date in YYYY-MM-DD format
         passengers: Number of passengers
 
     Returns:
-        List of Task objects
+        List of CrewAI Task objects
     """
-
     tasks = [
         Task(
-            description=f"Search for flights from {origin} to {destination} on {departure_date} for {passengers} passenger(s) on Skyscanner. Find budget-friendly options and report the cheapest flights.",
+            description=f"Search for {passengers} passenger(s) flight(s) from {origin} to {destination} on {departure_date} on Skyscanner. Find the cheapest options.",
             agent=agents["skyscanner"],
-            expected_output="List of flights with prices, airlines, and booking links from Skyscanner"
+            expected_output="A list of flights from Skyscanner with prices, airlines, departure/arrival times, and booking URLs"
         ),
         Task(
-            description=f"Search for flights from {origin} to {destination} on {departure_date} for {passengers} passenger(s) on Kayak. Focus on value and customer ratings.",
+            description=f"Search for {passengers} passenger(s) flight(s) from {origin} to {destination} on {departure_date} on Kayak. Find the best value options.",
             agent=agents["kayak"],
-            expected_output="List of flights with prices, airlines, and booking links from Kayak"
+            expected_output="A list of flights from Kayak with prices, airlines, departure/arrival times, and booking URLs"
         ),
         Task(
-            description=f"Search for flights from {origin} to {destination} on {departure_date} for {passengers} passenger(s) on Google Flights. Look for flexible options and price trends.",
+            description=f"Search for {passengers} passenger(s) flight(s) from {origin} to {destination} on {departure_date} on Google Flights. Analyze price trends.",
             agent=agents["google_flights"],
-            expected_output="List of flights with prices, airlines, and booking links from Google Flights"
+            expected_output="A list of flights from Google Flights with prices, airlines, departure/arrival times, and booking URLs"
         ),
         Task(
-            description=f"Search for flights from {origin} to {destination} on {departure_date} for {passengers} passenger(s) on Amadeus. Find premium options with seat details.",
+            description=f"Search for {passengers} passenger(s) flight(s) from {origin} to {destination} on {departure_date} on Amadeus. Find premium options.",
             agent=agents["amadeus"],
-            expected_output="List of flights with prices, airlines, and booking links from Amadeus"
+            expected_output="A list of flights from Amadeus with prices, airlines, departure/arrival times, and booking URLs"
         )
     ]
 
