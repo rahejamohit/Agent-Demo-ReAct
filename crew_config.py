@@ -2,21 +2,41 @@
 Flight Search Configuration for Flight Price Aggregator
 CrewAI agents and tasks with tool integration
 Uses CrewAI 1.14.5 native multi-provider LLM support
-Supports: Google Gemini, OpenAI, Anthropic
+Supports: Google Gemini, OpenAI, Anthropic, Ollama (local)
 """
 
 import os
 import random
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
+from crewai import Agent, Task, Crew
 from crewai.tools import tool
-from crewai import Agent, Task, LLM
+
+from constants import (
+    FLIGHT_PROVIDER_SKYSCANNER,
+    FLIGHT_PROVIDER_KAYAK,
+    FLIGHT_PROVIDER_GOOGLE_FLIGHTS,
+    FLIGHT_PROVIDER_AMADEUS,
+    FLIGHT_PROVIDERS,
+    FLIGHT_PROVIDER_DISPLAY_NAMES,
+    AIRLINES_BY_PROVIDER,
+)
+
+# Handle LLM import - may be in different location depending on CrewAI version
+try:
+    from crewai import LLM
+except ImportError:
+    try:
+        from crewai.llm import LLM
+    except ImportError:
+        # Mock LLM for testing if not available
+        LLM = None
 
 # ============================================================================
-# PROVIDER CONFIGURATION
+# LLM PROVIDER CONFIGURATION
 # ============================================================================
 
-PROVIDER_CONFIG = {
+LLM_PROVIDER_CONFIG = {
     "google": {
         "prefix": "gemini",
         "env_var": "GOOGLE_API_KEY",
@@ -34,6 +54,44 @@ PROVIDER_CONFIG = {
         "env_var": "ANTHROPIC_API_KEY",
         "default_model": "claude-3-5-sonnet",
         "description": "Anthropic Claude 3.5 Sonnet"
+    },
+    "ollama": {
+        "prefix": "ollama",
+        "env_var": None,  # Ollama doesn't require API key
+        "default_model": "gemma4:e4b",
+        "description": "Ollama (Local LLM)",
+        "base_url": "http://localhost:11434"  # Default Ollama port
+    }
+}
+
+# ============================================================================
+# FLIGHT PROVIDER CONFIGURATION
+# ============================================================================
+
+FLIGHT_PROVIDER_CONFIG = {
+    FLIGHT_PROVIDER_SKYSCANNER: {
+        "role": "Skyscanner Flight Search Specialist",
+        "goal": "Find the cheapest flights and best deals on Skyscanner",
+        "backstory": "You are an expert at finding budget-friendly flights on Skyscanner, specializing in low-cost carriers and special deals.",
+        "tools": None  # Tools will be set in create_provider_agent
+    },
+    FLIGHT_PROVIDER_KAYAK: {
+        "role": "Kayak Flight Search Specialist",
+        "goal": "Find the best value flights with ratings and customer satisfaction on Kayak",
+        "backstory": "You are skilled at finding flights on Kayak with the best value for money, considering both price and customer ratings.",
+        "tools": None
+    },
+    FLIGHT_PROVIDER_GOOGLE_FLIGHTS: {
+        "role": "Google Flights Search Specialist",
+        "goal": "Find flexible flight options and analyze price trends on Google Flights",
+        "backstory": "You excel at finding flexible flight options on Google Flights and identifying price trends to help customers find the best time to book.",
+        "tools": None
+    },
+    FLIGHT_PROVIDER_AMADEUS: {
+        "role": "Amadeus Flight Search Specialist",
+        "goal": "Find premium flights with seat options and ancillaries on Amadeus",
+        "backstory": "You specialize in finding premium flight options on Amadeus with detailed seat configurations and ancillary services.",
+        "tools": None
     }
 }
 
@@ -44,38 +102,31 @@ PROVIDER_CONFIG = {
 @tool
 def search_skyscanner(origin: str, destination: str, departure_date: str, passengers: int = 1) -> Dict[str, Any]:
     """Search flights on Skyscanner for deals and budget airlines."""
-    return _search_flights("skyscanner", origin, destination, departure_date, passengers)
+    return _search_flights(FLIGHT_PROVIDER_SKYSCANNER, origin, destination, departure_date, passengers)
 
 
 @tool
 def search_kayak(origin: str, destination: str, departure_date: str, passengers: int = 1) -> Dict[str, Any]:
     """Search flights on Kayak for best prices and ratings."""
-    return _search_flights("kayak", origin, destination, departure_date, passengers)
+    return _search_flights(FLIGHT_PROVIDER_KAYAK, origin, destination, departure_date, passengers)
 
 
 @tool
 def search_google_flights(origin: str, destination: str, departure_date: str, passengers: int = 1) -> Dict[str, Any]:
     """Search flights on Google Flights for flexible options and price trends."""
-    return _search_flights("google_flights", origin, destination, departure_date, passengers)
+    return _search_flights(FLIGHT_PROVIDER_GOOGLE_FLIGHTS, origin, destination, departure_date, passengers)
 
 
 @tool
 def search_amadeus(origin: str, destination: str, departure_date: str, passengers: int = 1) -> Dict[str, Any]:
     """Search flights on Amadeus for premium options and ancillaries."""
-    return _search_flights("amadeus", origin, destination, departure_date, passengers)
+    return _search_flights(FLIGHT_PROVIDER_AMADEUS, origin, destination, departure_date, passengers)
 
 
 def _search_flights(provider: str, origin: str, destination: str,
                    departure_date: str, passengers: int = 1) -> Dict[str, Any]:
     """Generate realistic mock flight data for a provider"""
     random.seed(hash(f"{provider}{origin}{destination}{departure_date}"))
-
-    airlines = {
-        "skyscanner": ["Ryanair", "EasyJet", "Wizz Air", "Southwest", "Spirit"],
-        "kayak": ["United", "Delta", "American", "Southwest", "JetBlue"],
-        "google_flights": ["Lufthansa", "KLM", "Air France", "Turkish", "Emirates"],
-        "amadeus": ["British Airways", "Lufthansa", "Singapore Airlines", "Qatar", "ANA"]
-    }
 
     flights = []
     for i in range(random.randint(8, 15)):
@@ -84,7 +135,7 @@ def _search_flights(provider: str, origin: str, destination: str,
 
         flight = {
             "provider": provider,
-            "airline": random.choice(airlines.get(provider, ["Unknown"])),
+            "airline": random.choice(AIRLINES_BY_PROVIDER.get(provider, ["Unknown"])),
             "flight_number": f"{provider.upper()[:2]}{i:03d}",
             "departure": f"{departure_date}T{random.randint(6,22):02d}:{random.choice([0,15,30,45]):02d}:00",
             "arrival": f"{departure_date}T{random.randint(8,23):02d}:{random.choice([0,15,30,45]):02d}:00",
@@ -102,44 +153,72 @@ def _search_flights(provider: str, origin: str, destination: str,
 
 
 # ============================================================================
-# AGENT CONFIGURATION
+# LLM CONFIGURATION HELPER
 # ============================================================================
 
-def create_agents(
+def create_llm(
     provider: str = "google",
     model: Optional[str] = None,
     api_key: Optional[str] = None
-) -> Dict[str, Agent]:
+) -> LLM:
     """
-    Create CrewAI Agent objects with multi-provider LLM support using CrewAI 1.14.5
+    Create a CrewAI LLM instance with multi-provider support.
+
+    This helper is used by provider crews to get the LLM instance without
+    creating unnecessary Agent objects.
 
     Args:
         provider: LLM provider to use (default: google)
-                 Supported: google, openai, anthropic
+                 Supported: google, openai, anthropic, ollama
         model: LLM model to use (defaults to provider's default model)
                Examples:
-               - Google: gemini-3-flash-preview, gemini-2-flash
-               - OpenAI: gpt-4, gpt-4-turbo, gpt-3.5-turbo
-               - Anthropic: claude-3-5-sonnet, claude-3-opus
+               - Google: gemini-2.5-flash
+               - OpenAI: gpt-4
+               - Anthropic: claude-3-5-sonnet
+               - Ollama: llama2, mistral, neural-chat, etc.
         api_key: API key for the provider (defaults to provider's env var)
+                 Not needed for Ollama
 
     Returns:
-        Dictionary of CrewAI Agent objects indexed by provider
+        CrewAI LLM instance configured for the specified provider
 
     Raises:
         ValueError: If provider is not supported or API key is missing
     """
     # Validate provider
-    if provider not in PROVIDER_CONFIG:
-        supported = ", ".join(PROVIDER_CONFIG.keys())
+    if provider not in LLM_PROVIDER_CONFIG:
+        supported = ", ".join(LLM_PROVIDER_CONFIG.keys())
         raise ValueError(f"Unsupported provider '{provider}'. Supported: {supported}")
 
-    config = PROVIDER_CONFIG[provider]
+    config = LLM_PROVIDER_CONFIG[provider]
 
     # Get or use default model
     if model is None:
         model = config["default_model"]
 
+    # Validate LLM class is available
+    if LLM is None:
+        raise ImportError(
+            "CrewAI LLM class could not be imported. "
+            "Please ensure CrewAI is properly installed."
+        )
+
+    # Log provider info
+    import logging
+    logger = logging.getLogger(__name__)
+
+    # Handle Ollama separately (no API key needed)
+    if provider == "ollama":
+        logger.info(f"🧠 LLM Provider: {config['description']} (local model: {model})")
+
+        # Create Ollama LLM instance - use format: ollama/model-name
+        llm = LLM(
+            model=f"{config['prefix']}/{model}",  # e.g., "ollama/gemma4:e4b"
+            base_url=config.get("base_url", "http://localhost:11434")
+        )
+        return llm
+
+    # For cloud providers (google, openai, anthropic), API key is required
     # Get API key from parameter or environment
     if api_key is None:
         api_key = os.getenv(config["env_var"])
@@ -155,122 +234,167 @@ def create_agents(
 
     # Create CrewAI's native LLM instance with dynamic provider
     # Format: {provider}/{model}
+    logger.info(f"🧠 LLM Provider: {config['description']} ({provider}/{model})")
+
     llm = LLM(
         model=f"{config['prefix']}/{model}",
         api_key=api_key,
-        temperature=0.7,
-        max_retries=2,              # Max 2 retries on LLM failures
-        request_timeout=30          # 30 second timeout per request
+        temperature=0.7
     )
 
-    # Log provider info
-    import logging
-    logger = logging.getLogger(__name__)
-    logger.info(f"🧠 LLM Provider: {config['description']} ({provider}/{model})")
-
-    # Define agents for each flight provider
-    # All agents share the same LLM instance
-    agents = {
-        "skyscanner": Agent(
-            role="Skyscanner Flight Search Specialist",
-            goal="Find the cheapest flights and best deals on Skyscanner",
-            backstory="You are an expert at finding budget-friendly flights on Skyscanner, specializing in low-cost carriers and special deals.",
-            tools=[search_skyscanner],
-            llm=llm,
-            verbose=True
-        ),
-        "kayak": Agent(
-            role="Kayak Flight Search Specialist",
-            goal="Find the best value flights with ratings and customer satisfaction on Kayak",
-            backstory="You are skilled at finding flights on Kayak with the best value for money, considering both price and customer ratings.",
-            tools=[search_kayak],
-            llm=llm,
-            verbose=True
-        ),
-        "google_flights": Agent(
-            role="Google Flights Search Specialist",
-            goal="Find flexible flight options and analyze price trends on Google Flights",
-            backstory="You excel at finding flexible flight options on Google Flights and identifying price trends to help customers find the best time to book.",
-            tools=[search_google_flights],
-            llm=llm,
-            verbose=True
-        ),
-        "amadeus": Agent(
-            role="Amadeus Flight Search Specialist",
-            goal="Find premium flights with seat options and ancillaries on Amadeus",
-            backstory="You specialize in finding premium flight options on Amadeus with detailed seat configurations and ancillary services.",
-            tools=[search_amadeus],
-            llm=llm,
-            verbose=True
-        ),
-        "aggregator": Agent(
-            role="Flight Results Aggregator",
-            goal="Combine and aggregate flight search results from all providers into a single sorted list by price",
-            backstory="You are an expert at aggregating flight data from multiple sources, deduplicating entries, and organizing them by price to provide users with the best options across all providers.",
-            tools=[],  # Aggregator doesn't need tools, it processes existing results
-            llm=llm,
-            verbose=True
-        )
-    }
-
-    return agents
+    return llm
 
 
 # ============================================================================
-# TASK CONFIGURATION
+# PER-PROVIDER CREW FACTORY FUNCTIONS (Option A: Multiple Crews in Parallel)
 # ============================================================================
 
-def create_tasks(agents: Dict[str, Agent], origin: str, destination: str,
-                departure_date: str, passengers: int = 1) -> List[Task]:
+def create_provider_agent(
+    provider_name: str,
+    llm: LLM
+) -> Agent:
     """
-    Create CrewAI Task objects for each agent
+    Create a single Agent for a specific flight provider.
 
     Args:
-        agents: Dictionary of CrewAI Agent objects
+        provider_name: Provider name ("skyscanner", "kayak", "google_flights", "amadeus")
+        llm: CrewAI LLM instance to use for this agent
+
+    Returns:
+        Agent configured for the specified provider
+
+    Raises:
+        ValueError: If provider_name is not recognized
+    """
+    # Map provider names to their respective search tools
+    flight_tools = {
+        FLIGHT_PROVIDER_SKYSCANNER: [search_skyscanner],
+        FLIGHT_PROVIDER_KAYAK: [search_kayak],
+        FLIGHT_PROVIDER_GOOGLE_FLIGHTS: [search_google_flights],
+        FLIGHT_PROVIDER_AMADEUS: [search_amadeus]
+    }
+
+    if provider_name not in FLIGHT_PROVIDER_CONFIG:
+        supported = ", ".join(FLIGHT_PROVIDER_CONFIG.keys())
+        raise ValueError(f"Unknown provider '{provider_name}'. Supported: {supported}")
+
+    config = FLIGHT_PROVIDER_CONFIG[provider_name].copy()
+    config["tools"] = flight_tools.get(provider_name, [])
+
+    agent = Agent(
+        role=config["role"],
+        goal=config["goal"],
+        backstory=config["backstory"],
+        tools=config["tools"],
+        llm=llm,
+        verbose=False,
+        max_iter=1  # Single iteration to prevent retry loops and reduce LLM calls
+    )
+
+    return agent
+
+
+def create_provider_task(
+    agent: Agent,
+    origin: str,
+    destination: str,
+    departure_date: str,
+    passengers: int = 1
+) -> Task:
+    """
+    Create a Task for a single provider agent.
+
+    Args:
+        agent: Agent to assign the task to
         origin: Departure airport code
         destination: Arrival airport code
         departure_date: Travel date in YYYY-MM-DD format
         passengers: Number of passengers
 
     Returns:
-        List of CrewAI Task objects
+        Task configured for the provider agent
     """
-    tasks = [
-        Task(
-            description=f"Search for {passengers} passenger(s) flight(s) from {origin} to {destination} on {departure_date} on Skyscanner. Find the cheapest options.",
-            agent=agents["skyscanner"],
-            async_execution=True,
-            expected_output="A list of flights from Skyscanner with prices, airlines, departure/arrival times, and booking URLs"
-        ),
-        Task(
-            description=f"Search for {passengers} passenger(s) flight(s) from {origin} to {destination} on {departure_date} on Kayak. Find the best value options.",
-            agent=agents["kayak"],
-            async_execution=True,
-            expected_output="A list of flights from Kayak with prices, airlines, departure/arrival times, and booking URLs"
-        ),
-        Task(
-            description=f"Search for {passengers} passenger(s) flight(s) from {origin} to {destination} on {departure_date} on Google Flights. Analyze price trends.",
-            agent=agents["google_flights"],
-            async_execution=True,
-            expected_output="A list of flights from Google Flights with prices, airlines, departure/arrival times, and booking URLs"
-        ),
-        Task(
-            description=f"Search for {passengers} passenger(s) flight(s) from {origin} to {destination} on {departure_date} on Amadeus. Find premium options.",
-            agent=agents["amadeus"],
-            async_execution=True,
-            expected_output="A list of flights from Amadeus with prices, airlines, departure/arrival times, and booking URLs"
-        )
-    ]
+    # Extract provider name from agent role and get display name
+    role = agent.role.lower()
+    provider_key = None
 
-    # Add aggregator task that combines results from all search tasks
-    # This task runs AFTER all async search tasks complete (synchronously)
-    aggregator_task = Task(
-        description=f"Take the flight search results from Skyscanner, Kayak, Google Flights, and Amadeus agents and combine them into a single aggregated list. Remove duplicates, sort by price (cheapest first), and ensure each flight has provider information and booking URL.",
-        agent=agents["aggregator"],
-        expected_output="A consolidated list of all flights from all providers, deduplicated, sorted by price with provider tags and booking URLs",
-        async_execution=False,  # Sync task - runs after all async tasks complete
-        context=tasks  # Explicitly declare dependency on all 4 search tasks
+    if FLIGHT_PROVIDER_SKYSCANNER in role:
+        provider_key = FLIGHT_PROVIDER_SKYSCANNER
+    elif FLIGHT_PROVIDER_KAYAK in role:
+        provider_key = FLIGHT_PROVIDER_KAYAK
+    elif FLIGHT_PROVIDER_GOOGLE_FLIGHTS in role:
+        provider_key = FLIGHT_PROVIDER_GOOGLE_FLIGHTS
+    elif FLIGHT_PROVIDER_AMADEUS in role:
+        provider_key = FLIGHT_PROVIDER_AMADEUS
+
+    provider_display_name = FLIGHT_PROVIDER_DISPLAY_NAMES.get(provider_key, "Unknown")
+
+    task = Task(
+        description=f"Search for {passengers} passenger(s) flight(s) from {origin} to {destination} on {departure_date} on {provider_display_name}. Return all available flights with prices, airlines, departure/arrival times, duration, stops, and booking URLs.",
+        agent=agent,
+        async_execution=False,  # Each crew runs independently, so no async_execution needed
+        expected_output=f"A list of flights from {provider_display_name} with prices, airlines, departure/arrival times, and booking URLs"
     )
 
-    # Return all tasks: 4 async search tasks + 1 sync aggregator task
-    return tasks + [aggregator_task]
+    return task
+
+
+def create_provider_crew(
+    provider_name: str,
+    origin: str,
+    destination: str,
+    departure_date: str,
+    passengers: int = 1,
+    llm_config: Optional[Dict[str, Any]] = None
+) -> Crew:
+    """
+    Create a complete Crew for a single flight provider.
+
+    This factory creates an independent crew with:
+    - 1 agent (specialized for the provider)
+    - 1 task (search for flights on that provider)
+    - Process.sequential (simple, single-task execution)
+
+    Args:
+        provider_name: Provider name ("skyscanner", "kayak", "google_flights", "amadeus")
+        origin: Departure airport code
+        destination: Arrival airport code
+        departure_date: Travel date in YYYY-MM-DD format
+        passengers: Number of passengers
+        llm_config: Optional dict with 'llm' key (LLM instance)
+                   If not provided, creates LLM from environment variables
+
+    Returns:
+        CrewAI Crew configured for single-provider execution
+
+    Raises:
+        ValueError: If provider_name is invalid or API key is missing
+    """
+    from crewai import Crew, Process
+
+    # Determine LLM to use
+    if llm_config and "llm" in llm_config:
+        llm = llm_config["llm"]
+    else:
+        # Create LLM from environment (default: google)
+        provider = os.getenv("LLM_PROVIDER", "google")
+        model = os.getenv("LLM_MODEL")
+        api_key = None
+
+        # Create LLM directly without unnecessary agent creation
+        llm = create_llm(provider=provider, model=model, api_key=api_key)
+
+    # Create agent and task for this provider
+    agent = create_provider_agent(provider_name, llm)
+    task = create_provider_task(agent, origin, destination, departure_date, passengers)
+
+    # Create crew with single task (Process.sequential is simple and reliable)
+    crew = Crew(
+        agents=[agent],
+        tasks=[task],
+        verbose=False,  # Reduce verbosity to minimize processing overhead
+        memory=False,
+        process=Process.sequential  # Simple, single-task execution
+    )
+
+    return crew

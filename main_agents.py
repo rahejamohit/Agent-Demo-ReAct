@@ -128,26 +128,28 @@ async def search_flights(search: FlightSearch):
     - Set respective API key: GOOGLE_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY
     """
     try:
-        from crew_config import PROVIDER_CONFIG
+        from crew_config import LLM_PROVIDER_CONFIG
 
         # Read LLM provider and model from environment variables
         provider_name = os.getenv("LLM_PROVIDER", "google")
         model_override = os.getenv("LLM_MODEL")
 
         # Validate provider
-        if provider_name not in PROVIDER_CONFIG:
-            supported = ", ".join(PROVIDER_CONFIG.keys())
+        if provider_name not in LLM_PROVIDER_CONFIG:
+            supported = ", ".join(LLM_PROVIDER_CONFIG.keys())
             raise ValueError(f"Unsupported provider '{provider_name}'. Supported: {supported}")
 
-        config = PROVIDER_CONFIG[provider_name]
-        api_key = os.getenv(config["env_var"])
+        config = LLM_PROVIDER_CONFIG[provider_name]
 
-        if not api_key:
-            logger.error(f"❌ {config['env_var']} not configured")
-            raise HTTPException(
-                status_code=500,
-                detail=f"Crew system not configured: {config['env_var']} required"
-            )
+        # Skip API key validation for Ollama (doesn't need one)
+        if provider_name != "ollama":
+            api_key = os.getenv(config["env_var"])
+            if not api_key:
+                logger.error(f"❌ {config['env_var']} not configured")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Crew system not configured: {config['env_var']} required"
+                )
 
         logger.info(
             f"🤖 CrewAI Search: {search.origin} → {search.destination} on {search.departure_date} "
@@ -239,10 +241,10 @@ async def agent_status():
     - Model information
     - Agent specialties
     """
-    from crew_config import PROVIDER_CONFIG
+    from crew_config import LLM_PROVIDER_CONFIG
 
     provider_name = os.getenv("LLM_PROVIDER", "google")
-    config = PROVIDER_CONFIG.get(provider_name, {})
+    config = LLM_PROVIDER_CONFIG.get(provider_name, {})
     api_key_configured = bool(os.getenv(config.get("env_var", "")))
 
     crew = get_crew()
