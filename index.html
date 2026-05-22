@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flight Price Aggregator - Search & Compare Flights</title>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+        }
+        .animate-spin {
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        .from-blue-50 { --tw-gradient-stops: #eff6ff, var(--tw-gradient-to, rgba(239, 246, 255, 0)); }
+        .to-indigo-100 { --tw-gradient-to: #e0e7ff; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useCallback } = React;
+
+        // Icon components
+        const Search = ({ className = "w-5 h-5" }) => (
+            <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+        );
+
+        const MapPin = ({ className = "w-4 h-4" }) => (
+            <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+            </svg>
+        );
+
+        const Users = ({ className = "w-4 h-4" }) => (
+            <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 8.048M12 4.354V2m5.373 2.36a4 4 0 010 5.292m0-5.292a4 4 0 110 5.292m-9.172-2.146a4 4 0 010 5.292m0-5.292a4 4 0 110 5.292" />
+            </svg>
+        );
+
+        const Zap = ({ className = "w-4 h-4" }) => (
+            <svg className={className} fill="currentColor" viewBox="0 0 24 24">
+                <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
+            </svg>
+        );
+
+        const AlertCircle = ({ className = "w-5 h-5" }) => (
+            <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4v.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+        );
+
+        const Loader = ({ className = "w-5 h-5" }) => (
+            <svg className={`${className} animate-spin`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+        );
+
+        const TrendingDown = ({ className = "w-4 h-4" }) => (
+            <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 17H21M13 13H21M5 4v7a1 1 0 001 1h1V4m0 0a2 2 0 012-2h6a2 2 0 012 2v0a2 2 0 01-2 2h-6a2 2 0 01-2-2z" />
+            </svg>
+        );
+
+        const Clock = ({ className = "w-4 h-4" }) => (
+            <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+        );
+
+        const Plane = ({ className = "w-8 h-8" }) => (
+            <svg className={className} fill="currentColor" viewBox="0 0 24 24">
+                <path d="M10.5 1.5H3.75A2.25 2.25 0 001.5 3.75v2.1a2.25 2.25 0 002.25 2.25H10.5v3h-3v1.5h3v4.5H6v1.5h4.5v3a1.5 1.5 0 113 0v-3H18v-1.5h-4.5v-4.5h3v-1.5h-3v-3h6.75a2.25 2.25 0 002.25-2.25v-2.1a2.25 2.25 0 00-2.25-2.25H13.5v-1.5h-3v1.5z" />
+            </svg>
+        );
+
+        // Main App Component
+        const FlightSearchApp = () => {
+            const [formData, setFormData] = useState({
+                origin: '',
+                destination: '',
+                departure_date: '',
+                passengers: 1,
+                cabin_class: 'economy',
+            });
+
+            const [flights, setFlights] = useState([]);
+            const [loading, setLoading] = useState(false);
+            const [error, setError] = useState(null);
+            const [searched, setSearched] = useState(false);
+            const [sortBy, setSortBy] = useState('price');
+
+            const handleInputChange = useCallback((e) => {
+                const { name, value } = e.target;
+                setFormData((prev) => ({
+                    ...prev,
+                    [name]: name === 'passengers' ? parseInt(value) : value,
+                }));
+            }, []);
+
+            const validateForm = () => {
+                if (!formData.origin.trim()) {
+                    setError('Please enter departure airport code (e.g., JFK)');
+                    return false;
+                }
+                if (!formData.destination.trim()) {
+                    setError('Please enter arrival airport code (e.g., LAX)');
+                    return false;
+                }
+                if (!formData.departure_date) {
+                    setError('Please select a departure date');
+                    return false;
+                }
+                if (formData.origin.toUpperCase() === formData.destination.toUpperCase()) {
+                    setError('Departure and arrival airports cannot be the same');
+                    return false;
+                }
+                return true;
+            };
+
+            const searchFlights = async () => {
+                setError(null);
+
+                if (!validateForm()) {
+                    return;
+                }
+
+                setLoading(true);
+                setSearched(true);
+
+                try {
+                    const response = await fetch('http://localhost:8080/api/v1/flights/search', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            origin: formData.origin.toUpperCase(),
+                            destination: formData.destination.toUpperCase(),
+                            departure_date: formData.departure_date,
+                            passengers: formData.passengers,
+                            cabin_class: formData.cabin_class,
+                        }),
+                    });
+
+                    if (!response.ok) {
+                        const errorData = await response.json();
+                        throw new Error(errorData.detail || `API Error: ${response.status}`);
+                    }
+
+                    const data = await response.json();
+                    setFlights(data.flights || []);
+
+                    if ((data.flights || []).length === 0) {
+                        setError('No flights found for the selected route. Try different dates or airports.');
+                    }
+                } catch (err) {
+                    setError(err.message || 'Failed to fetch flights. Make sure the API is running on localhost:8080');
+                    setFlights([]);
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            const handleKeyPress = (e) => {
+                if (e.key === 'Enter') {
+                    searchFlights();
+                }
+            };
+
+            const getSortedFlights = () => {
+                const sorted = [...flights];
+                switch (sortBy) {
+                    case 'price':
+                        sorted.sort((a, b) => parseFloat(a.price) - parseFloat(b.price));
+                        break;
+                    case 'duration':
+                        sorted.sort((a, b) => a.duration_minutes - b.duration_minutes);
+                        break;
+                    case 'stops':
+                        sorted.sort((a, b) => a.stops - b.stops);
+                        break;
+                    default:
+                        break;
+                }
+                return sorted;
+            };
+
+            const sortedFlights = getSortedFlights();
+
+            const formatTime = (isoString) => {
+                try {
+                    const date = new Date(isoString);
+                    return date.toLocaleTimeString('en-US', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        hour12: true,
+                    });
+                } catch {
+                    return 'N/A';
+                }
+            };
+
+            const formatDuration = (minutes) => {
+                const hours = Math.floor(minutes / 60);
+                const mins = minutes % 60;
+                return `${hours}h ${mins}m`;
+            };
+
+            const getProviderColor = (provider) => {
+                const colors = {
+                    skyscanner: 'from-blue-500 to-blue-600',
+                    kayak: 'from-orange-500 to-orange-600',
+                    google_flights: 'from-green-500 to-green-600',
+                    amadeus: 'from-purple-500 to-purple-600',
+                };
+                return colors[provider] || 'from-gray-500 to-gray-600';
+            };
+
+            const getProviderName = (provider) => {
+                const names = {
+                    skyscanner: 'Skyscanner',
+                    kayak: 'Kayak',
+                    google_flights: 'Google Flights',
+                    amadeus: 'Amadeus',
+                };
+                return names[provider] || provider.charAt(0).toUpperCase() + provider.slice(1);
+            };
+
+            return (
+                <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
+                    {/* Header */}
+                    <div className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg">
+                        <div className="max-w-7xl mx-auto px-4 py-8">
+                            <div className="flex items-center gap-3 mb-2">
+                                <Plane className="w-8 h-8" />
+                                <h1 className="text-4xl font-bold">Flight Price Aggregator</h1>
+                            </div>
+                            <p className="text-blue-100">Search and compare flights from multiple providers</p>
+                        </div>
+                    </div>
+
+                    {/* Main Content */}
+                    <div className="max-w-7xl mx-auto px-4 py-8">
+                        {/* Search Card */}
+                        <div className="bg-white rounded-2xl shadow-xl p-8 mb-8">
+                            <h2 className="text-2xl font-bold text-gray-800 mb-6">Find Your Flight</h2>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4 mb-6">
+                                {/* From */}
+                                <div className="lg:col-span-1">
+                                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                                        <MapPin className="w-4 h-4 inline mr-1" />
+                                        From
+                                    </label>
+                                    <input
+                                        type="text"
+                                        name="origin"
+                                        placeholder="e.g., JFK"
+                                        value={formData.origin}
+                                        onChange={handleInputChange}
+                                        onKeyPress={handleKeyPress}
+                                        className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:outline-none focus:border-blue-500 transition uppercase font-semibold"
+                                    />
+                                </div>
+
+                                {/* To */}
+                                <div className="lg:col-span-1">
+                                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                                        <MapPin className="w-4 h-4 inline mr-1" />
+                                        To
+                                    </label>
+                                    <input
+                                        type="text"
+                                        name="destination"
+                                        placeholder="e.g., LAX"
+                                        value={formData.destination}
+                                        onChange={handleInputChange}
+                                        onKeyPress={handleKeyPress}
+                                        className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:outline-none focus:border-blue-500 transition uppercase font-semibold"
+                                    />
+                                </div>
+
+                                {/* Date */}
+                                <div className="lg:col-span-1">
+                                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                                        📅 Departure
+                                    </label>
+                                    <input
+                                        type="date"
+                                        name="departure_date"
+                                        value={formData.departure_date}
+                                        onChange={handleInputChange}
+                                        onKeyPress={handleKeyPress}
+                                        className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:outline-none focus:border-blue-500 transition"
+                                    />
+                                </div>
+
+                                {/* Passengers */}
+                                <div className="lg:col-span-1">
+                                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                                        <Users className="w-4 h-4 inline mr-1" />
+                                        Passengers
+                                    </label>
+                                    <select
+                                        name="passengers"
+                                        value={formData.passengers}
+                                        onChange={handleInputChange}
+                                        className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:outline-none focus:border-blue-500 transition"
+                                    >
+                                        {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((num) => (
+                                            <option key={num} value={num}>
+                                                {num} Passenger{num > 1 ? 's' : ''}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                {/* Class */}
+                                <div className="lg:col-span-1">
+                                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                                        <Zap className="w-4 h-4 inline mr-1" />
+                                        Class
+                                    </label>
+                                    <select
+                                        name="cabin_class"
+                                        value={formData.cabin_class}
+                                        onChange={handleInputChange}
+                                        className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:outline-none focus:border-blue-500 transition"
+                                    >
+                                        <option value="economy">Economy</option>
+                                        <option value="business">Business</option>
+                                        <option value="first">First</option>
+                                    </select>
+                                </div>
+
+                                {/* Search Button */}
+                                <div className="lg:col-span-1 flex items-end">
+                                    <button
+                                        onClick={searchFlights}
+                                        disabled={loading}
+                                        className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold py-3 px-6 rounded-lg hover:shadow-lg transform hover:-translate-y-0.5 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                                    >
+                                        {loading ? (
+                                            <>
+                                                <Loader className="w-5 h-5" />
+                                                Searching...
+                                            </>
+                                        ) : (
+                                            <>
+                                                <Search className="w-5 h-5" />
+                                                Search
+                                            </>
+                                        )}
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Error Message */}
+                            {error && (
+                                <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-lg flex gap-3">
+                                    <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+                                    <div>
+                                        <p className="font-semibold text-red-800">Search Error</p>
+                                        <p className="text-red-700 text-sm mt-1">{error}</p>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Results Section */}
+                        {searched && (
+                            <div>
+                                {/* Sort Bar */}
+                                {sortedFlights.length > 0 && (
+                                    <div className="flex justify-between items-center mb-6">
+                                        <h2 className="text-2xl font-bold text-gray-800">
+                                            {sortedFlights.length} Flight{sortedFlights.length !== 1 ? 's' : ''} Found
+                                        </h2>
+                                        <div className="flex gap-2">
+                                            <button
+                                                onClick={() => setSortBy('price')}
+                                                className={`px-4 py-2 rounded-lg font-semibold transition ${
+                                                    sortBy === 'price'
+                                                        ? 'bg-blue-600 text-white'
+                                                        : 'bg-white text-gray-700 border-2 border-gray-200 hover:border-blue-500'
+                                                }`}
+                                            >
+                                                <TrendingDown className="w-4 h-4 inline mr-2" />
+                                                Cheapest
+                                            </button>
+                                            <button
+                                                onClick={() => setSortBy('duration')}
+                                                className={`px-4 py-2 rounded-lg font-semibold transition ${
+                                                    sortBy === 'duration'
+                                                        ? 'bg-blue-600 text-white'
+                                                        : 'bg-white text-gray-700 border-2 border-gray-200 hover:border-blue-500'
+                                                }`}
+                                            >
+                                                <Clock className="w-4 h-4 inline mr-2" />
+                                                Fastest
+                                            </button>
+                                            <button
+                                                onClick={() => setSortBy('stops')}
+                                                className={`px-4 py-2 rounded-lg font-semibold transition ${
+                                                    sortBy === 'stops'
+                                                        ? 'bg-blue-600 text-white'
+                                                        : 'bg-white text-gray-700 border-2 border-gray-200 hover:border-blue-500'
+                                                }`}
+                                            >
+                                                ✈️ Fewest Stops
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Flight Cards */}
+                                {sortedFlights.length > 0 ? (
+                                    <div className="grid grid-cols-1 gap-4">
+                                        {sortedFlights.map((flight, index) => (
+                                            <div
+                                                key={index}
+                                                className="bg-white rounded-xl shadow-md hover:shadow-xl transition overflow-hidden border-l-4 border-blue-500"
+                                            >
+                                                <div className="p-6">
+                                                    <div className="grid grid-cols-1 md:grid-cols-4 gap-6 items-center mb-6">
+                                                        {/* Provider & Airline */}
+                                                        <div>
+                                                            <div
+                                                                className={`inline-block px-3 py-1 rounded-full text-white text-xs font-bold mb-2 bg-gradient-to-r ${getProviderColor(
+                                                                    flight.provider
+                                                                )}`}
+                                                            >
+                                                                {getProviderName(flight.provider)}
+                                                            </div>
+                                                            <p className="text-2xl font-bold text-gray-800 mt-2">{flight.airline}</p>
+                                                            <p className="text-gray-500 text-sm">Flight {flight.flight_number}</p>
+                                                        </div>
+
+                                                        {/* Departure & Arrival */}
+                                                        <div className="text-center">
+                                                            <p className="text-3xl font-bold text-gray-800">
+                                                                {formatTime(flight.departure)}
+                                                            </p>
+                                                            <p className="text-gray-500 text-sm mt-1">
+                                                                {flight.departure.split('T')[0]}
+                                                            </p>
+                                                            <div className="flex items-center justify-center gap-2 my-3">
+                                                                <div className="h-0.5 w-8 bg-gray-300"></div>
+                                                                <span className="text-xs text-gray-500">{flight.stops} stop</span>
+                                                                <div className="h-0.5 w-8 bg-gray-300"></div>
+                                                            </div>
+                                                            <p className="text-3xl font-bold text-gray-800">
+                                                                {formatTime(flight.arrival)}
+                                                            </p>
+                                                            <p className="text-gray-500 text-sm mt-1">Arrives next day</p>
+                                                        </div>
+
+                                                        {/* Duration & Seats */}
+                                                        <div className="text-center">
+                                                            <p className="text-gray-600 text-sm">Duration</p>
+                                                            <p className="text-xl font-bold text-gray-800 mt-1">
+                                                                {formatDuration(flight.duration_minutes)}
+                                                            </p>
+                                                            <div className="mt-4 pt-4 border-t border-gray-200">
+                                                                <p className="text-gray-600 text-sm">Seats Available</p>
+                                                                <p className="text-xl font-bold text-green-600 mt-1">
+                                                                    {flight.seats_available}
+                                                                </p>
+                                                            </div>
+                                                        </div>
+
+                                                        {/* Price & Book Button */}
+                                                        <div className="text-center md:text-right">
+                                                            <p className="text-gray-600 text-sm">Price per Passenger</p>
+                                                            <p className="text-4xl font-bold text-blue-600 mt-2">
+                                                                ${parseFloat(flight.price).toFixed(2)}
+                                                            </p>
+                                                            <p className="text-gray-500 text-xs mt-1">
+                                                                Total: ${(parseFloat(flight.price) * formData.passengers).toFixed(2)}
+                                                            </p>
+                                                            <a
+                                                                href={flight.booking_url}
+                                                                target="_blank"
+                                                                rel="noopener noreferrer"
+                                                                className="mt-6 inline-block w-full md:w-auto bg-gradient-to-r from-green-500 to-green-600 text-white font-bold py-3 px-6 rounded-lg hover:shadow-lg transform hover:-translate-y-0.5 transition"
+                                                            >
+                                                                Book Now →
+                                                            </a>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : loading ? (
+                                    <div className="text-center py-16">
+                                        <Loader className="w-12 h-12 text-blue-600 mx-auto mb-4" />
+                                        <p className="text-gray-600 text-lg">Searching for the best flights...</p>
+                                    </div>
+                                ) : (
+                                    <div className="bg-white rounded-xl shadow-lg p-12 text-center">
+                                        <AlertCircle className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                                        <p className="text-gray-600 text-lg mb-2">No flights found</p>
+                                        <p className="text-gray-500">Try adjusting your search criteria and try again</p>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {/* Empty State */}
+                        {!searched && (
+                            <div className="bg-white rounded-xl shadow-lg p-12 text-center">
+                                <Plane className="w-16 h-16 text-blue-400 mx-auto mb-4" />
+                                <p className="text-gray-600 text-lg mb-2">Ready to find your flight?</p>
+                                <p className="text-gray-500">Fill in your travel details above and click Search to get started</p>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Footer */}
+                    <div className="bg-gray-800 text-gray-300 text-center py-6 mt-12">
+                        <p>Flight Price Aggregator © 2024 | Powered by CrewAI & Multi-Agent System</p>
+                        <p className="text-sm text-gray-500 mt-2">API: localhost:8080</p>
+                    </div>
+                </div>
+            );
+        };
+
+        ReactDOM.render(<FlightSearchApp />, document.getElementById('root'));
+    </script>
+</body>
+</html>
